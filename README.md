@@ -1,181 +1,322 @@
-# Pixelarium - Falling Sand Cellular Automata Game
+![banner](assets/banner.png)
 
-A real-time physics simulation featuring falling sand mechanics, complex material interactions, and emergent behaviors. 
+# pixelarium
 
-## 🎮 Controls
+real-time cellular automata with evolving creatures, procedural audio, and emergent ecosystems.
 
-### Basic Controls
-- **Left Click + Drag**: Paint selected material
-- **Double Click**: Place persistent generator (continuously spawns material)
-- **Double Click + Eraser**: Remove generators
-- **Spacebar**: Pause/Resume simulation
-- **Clear Button**: Reset entire simulation
+## overview
 
-### Material Selection
-Click material buttons on the right side to select:
-- **Sand** - Falls and settles
-- **Water** - Flows and seeks lower levels  
-- **Fire** - Spreads and burns materials
-- **Dirt** - Solid foundation material
-- **Tree** - Grows from dirt+water, burns
-- **Glass** - Solid barrier, fire-resistant
-- **Steam** - Rises up, condenses on glass
-- **Acid** - Dissolves most materials
-- **Lava** - Burns and melts materials
-- **Worm** - Living creatures that move
-- **Eraser** - Removes materials
+pixelarium simulates a world of falling sand physics where materials interact chemically, trees grow fractally toward water, and pink worms navigate using learned memory that passes to offspring through breeding.
 
-## 🧬 Cellular Automata Rules
+## controls
 
-### Physics System
-The simulation uses a **double-buffered grid** with density-based physics:
+- **click+drag** paint selected material
+- **double-click** place persistent generator
+- **spacebar** pause/resume
+- **ctrl+v** paste image (dithered to material palette)
 
-1. **First Pass**: Material movement based on density
-2. **Second Pass**: Chemical interactions and transformations
-3. **Third Pass**: Fractal tree growth processing
+![banner](assets/screenshot.png)
 
-### Material Properties
+## material physics
 
-| Material | Density | Flammable | Liquid | Special Properties |
-|----------|---------|-----------|--------|-------------------|
-| Empty | 0 | ❌ | ❌ | Void space |
-| Sand | 3 | ❌ | ❌ | Falls, can be melted |
-| Water | 2 | ❌ | ✅ | Flows, extinguishes fire |
-| Fire | 1 | ❌ | ❌ | Life: 60 frames |
-| Dirt | 4 | ❌ | ❌ | Can sprout trees |
-| Tree | 5 | ✅ | ❌ | Grows, burns |
-| Glass | 8 | ❌ | ❌ | Solid barrier |
-| Steam | 0.5 | ❌ | ❌ | Life: 120 frames, rises |
-| Acid | 2.5 | ❌ | ✅ | Life: 300 frames, corrosive |
-| Lava | 4 | ❌ | ✅ | Burns and melts |
-| Worm | 1 | ✅ | ❌ | Life: 300 frames, moves |
+### density-based movement
 
-## 🔥 Material Interactions
+materials fall and displace based on relative density. heavier materials sink through lighter ones.
 
-### Fire Interactions
-- **Fire + Flammable Materials** → Spreads (5% chance)
-  - Trees, Dead Trees, Worms become Fire
-- **Fire + Sand** → Glass (2% chance)
-- **Fire + Water** → Steam (8% chance)
-- **Fire + Tree/Dead Tree** → Creates steam nearby (30% chance)
+| material | density | behavior |
+|----------|---------|----------|
+| steam | 0.5 | rises, condenses on glass → water |
+| fire | 1.0 | rises slightly, 60 frame lifespan |
+| water | 2.0 | flows horizontally, falls fast (up to 3 cells/frame) |
+| acid | 2.5 | floats on water, corrodes most materials |
+| sand | 3.0 | sinks through water, melts to glass near fire/lava |
+| dirt | 4.0 | sinks through water, sprouts trees when wet |
+| lava | 4.0 | flows slowly, vaporizes water, ignites flammables |
+| tree | 5.0 | static when connected, isolated pixels fall |
+| glass | 8.0 | immovable barrier, condenses steam |
 
-### Water Interactions
-- **Water + Fire** → Extinguishes fire (30% chance)
-- **Water + Dirt** → Tree growth (0.8% chance)
-  - Converts dirt to tree, consumes water
-  - Starts fractal tree growth upward
-  - Blocked by glass barriers
+### chemical interactions
 
-### Tree System
-**Initial Growth (Dirt + Water)**:
-- Dirt pixel touches water → converts to tree
-- Starts fractal growth queue upward
-- Glass blocks initial growth path
+**fire**
+- spreads to flammable materials (5% chance per neighbor)
+- converts sand → glass (2%)
+- converts water → steam (8%)
+- burning plants release steam
 
-**Fractal Growth**:
-- Queue-based branching system
-- **Trunk thickness**: 3 → 2 → 1 (tapers)
-- **Directions**: Up, up-left, up-right
-- **Branching**: Creates left/right branches (20-50% chance based on thickness)
-- **Glass blocking**: Stops when hitting glass barriers
-- **Random sway**: Natural movement variation
+**water**
+- extinguishes adjacent fire (30%)
+- touching dirt triggers tree growth (0.8%)
+- consumed when trees grow
 
-### Steam Interactions
-- **Steam + Glass** → Water (15% chance)
-  - Condensation effect
+**acid**
+- dissolves non-glass materials (3%)
+- diluted by water majority → becomes tinted water
+- life timer: 90 frames before evaporation
 
-### Acid Interactions
-- **Acid + Most Materials** → Dissolves (3% chance)
-- **Immune**: Glass, Fire, Empty, Acid itself
+**lava**
+- ignites flammables (10%)
+- vaporizes water → steam (20%)
+- melts sand → glass (5%)
 
-### Lava Interactions
-- **Lava + Flammable** → Fire (10% chance)
-- **Lava + Water** → Steam (20% chance)
-- **Lava + Sand** → Glass (5% chance)
+**steam**
+- condenses on glass → water (15%)
+- 120 frame lifespan
 
-### Worm System
-**Spawning**:
-- **Water + Dirt + Tree** all touching → Spawns worms (0.5% chance)
-- Requires 4+ connected pixels of triggering material
-- Creates 3-pixel worms (head, body, tail)
+## tree system
 
-**Behavior**:
-- Move along surfaces using edge detection
-- Fall when no surface moves available
-- Age and die over time (300 frames)
-- Can breed when multiple worms are near
+### fractal growth
 
-## 🌳 Advanced Features
+trees grow from dirt+water contact. growth uses a queue-based branching algorithm:
 
-### Generator System
-- **Double-click** to place persistent material generators
-- Continuously spawn selected material every 3 frames
-- **Hover** to see pulsing indicator border
-- **Eraser + Double-click** to remove generators
-- Perfect for creating steady material flows
+1. dirt pixel touches water → converts to tree, water consumed
+2. growth node spawns with direction, length, thickness
+3. each frame: extend trunk upward with random sway
+4. branch probability increases with thickness (20-50%)
+5. branches spawn left/right with reduced length and thickness
+6. glass blocks all growth paths
 
-### Glass Barriers
-- **Highest density** (8) - doesn't fall
-- **Fire resistant** - doesn't burn or melt
-- **Blocks tree growth** - fractal trees respect glass boundaries
-- **Steam condensation** - causes steam to turn to water
-- **Acid resistant** - immune to acid corrosion
+### lifecycle
 
-### Tree Growth Mechanics
-**Resource-Based Growth**:
-- Trees grow based on nearby water/dirt density
-- Higher resource density = faster growth
-- Consumes water when growing (30% chance)
-- Multiple growth directions for organic shapes
+- **connected trees** form stable structures (won't fall)
+- **isolated pixels** (0 neighbors) fall like sand
+- **death conditions**: isolated or end-branch without water access within 15 pixels
+- **death rates**: 8% for isolated, 3% for end-branches
+- **decomposition**: dead trees decay over 180 frames → dirt
 
-**Fractal Structure**:
-- Main trunk grows straight up (thickness 3)
-- Branches grow diagonally (thickness 2, then 1)
-- Up to 3 generations of branching
-- Natural sway and variation in growth
+### behavior
 
-## 🎯 Emergent Behaviors
+trees actively grow toward nearby water (8 pixel range). clustered trees (3+ neighbors) branch more aggressively. growth can push through dirt and into water (aquatic growth).
 
-### Ecosystem Dynamics
-- **Fire spreads** through tree networks
-- **Water management** affects tree growth
-- **Acid rain** can dissolve landscapes
-- **Steam cycles** create weather-like effects
+## worm intelligence
 
-### Complex Interactions
-- **Dirt + Water + Trees** → Worm ecosystems
-- **Fire + Trees** → Forest fires with steam
-- **Lava + Various** → Volcanic effects
-- **Glass barriers** → Controlled environments
+worms are 3-pixel creatures (head, body, tail) with individual memory, genetic colors, and goal-directed behavior.
 
-### Creative Possibilities
-- Build **glass containers** for controlled experiments
-- Create **lava forges** that turn sand to glass
-- Design **tree farms** with water irrigation
-- Set up **generator networks** for automated systems
+### memory system
 
-## 🏗️ Technical Implementation
+each worm maintains up to 32 memories. memories encode:
 
-### Performance Features
-- **Double-buffered grids** prevent flickering
-- **Efficient pixel processing** with optimized loops
-- **Life-based systems** for temporary materials
-- **Queue-based tree growth** for complex branching
+```
+{
+  relativeElevation: -3 to +3 (solids below vs above)
+  localTreeDensity: 0-25 (trees in 5x5 area)
+  localPixelClass: -4 to +4 (chemical environment score)
+  movement: {dx, dy}
+  weight: -5 to +5 (learned value)
+  kind: 'food' | 'breed' | 'neutral'
+}
+```
 
-### Rendering System
-- **HTML5 Canvas** with pixel-perfect rendering
-- **Color variation** for visual richness
-- **Mobile touch support** for accessibility
-- **Responsive design** adapts to window size
+**environmental scoring**
+- tree/dirt/dead_tree: +2
+- water: +1
+- acid/fire/lava: -4
 
----
+memories key on environmental context, not position. this allows generalization: a worm learning "go up when surrounded by trees" applies that knowledge anywhere.
 
-## 🚀 Getting Started
+### decision making
 
-1. Open `pixelarium.html` in a web browser
-2. Select a material from the right panel
-3. Click and drag to paint
-4. Double-click to place generators
-5. Watch the cellular automata come to life!
+movement selection uses weighted scoring:
 
-Experiment with different material combinations to discover emergent behaviors and create complex simulations!
+1. **food priority**: eating tree pixels always takes precedence
+2. **social attraction**: bias toward nearby worms (breeding opportunities)
+3. **cluster seeking**: navigate toward dense tree groups
+4. **surface following**: prefer moves maintaining solid contact
+5. **memory weighting**: past successes/failures in similar contexts
+6. **goal alignment**: bonus for moves matching current navigation goal
+
+worms sample local pixel class before moving, avoiding dangerous materials. when stuck, they reverse direction or cycle body positions.
+
+### physics
+
+- worms need solid surface contact to crawl (can't fly)
+- unsupported worms fall
+- worms displace water (water moves to where tail was)
+- worms can push dirt/sand upward when climbing
+- eating trees restores life (+1, capped at 120% max)
+
+### damage and fire
+
+- **acid contact**: -3 life per update
+- **fire contact**: -5 life per update
+- **lava contact**: -10 life per update
+- **on fire status**: persists until water contact, -2 life per update
+- fire/lava ignite worms; water extinguishes
+
+### death
+
+worms die when life reaches 0. corpses convert to acid (3 pixels), seeding the environment with corrosive material.
+
+## breeding
+
+### conditions
+
+- both worms mature (25+ frames old)
+- within 2 pixels of each other
+- neither submerged (6+ water contacts, <3 air contacts)
+- 8% base chance per eligible pair
+
+### offspring
+
+spawned near parents with inherited traits:
+
+**memory inheritance**
+- takes 8 strongest memories from each parent (by |weight|)
+- interleaves and caps at 16 total
+- 20% mutation chance per memory (weight ±1)
+
+**color genetics**
+
+colors blend based on memory influence:
+
+```
+parent1Influence = |p1MemorySum| / (|p1MemorySum| + |p2MemorySum| + 1)
+```
+
+brightness shifts based on inherited memory quality:
+- positive memories → lighter offspring
+- negative memories → darker offspring
+
+hue tints based on memory type ratio:
+- food-dominant memories → warmer (peachy-pink)
+- breed-dominant memories → cooler (lilac-pink)
+
+mutation chance scales with parent memory diversity difference (up to 30%).
+
+### breeding cost
+
+both parents lose 15 life. failed breeding attempts (no space) penalize recent memories.
+
+## audio engine
+
+### architecture
+
+web audio api with:
+- master gain → dynamics compressor (limiter) → destination
+- per-material water noise system
+- per-worm fm synthesis voices (max 16 polyphony)
+
+### water noise
+
+continuous noise generator responds to water simulation state:
+
+**signal flow**
+```
+noise buffer → lowpass filter (material-tone modulated)
+            → dual-band split (400hz rumble / 2.4khz hiss)
+            → density crossfade
+            → movement-modulated envelope
+            → master
+```
+
+**modulation**
+- filter cutoff tracks average material frequencies on grid
+- falling water boosts cutoff (+800hz max)
+- water density controls bass/treble balance
+- movement creates transient volume bursts with 2s decay
+- dual LFOs add subtle breathing texture
+
+**splash accents**
+
+material interactions trigger LFO modulation bursts:
+- `steamHiss`: fire+water, water extinguishing
+- `waterDrop`: dirt+water tree growth
+- `acidFizz`: acid neutralization
+- `lavaBloop`: lava vaporizing water
+
+### worm voices
+
+each worm gets a persistent dual-carrier fm synthesizer:
+
+**architecture**
+```
+modulator → mod1Gain → carrier1.detune
+          → mod2Gain → carrier2.detune
+
+carrier1 → carrier1Gain → voiceGain → master (movement)
+carrier2 → carrier2Gain →          → eventEnv → eventAmp → master (events)
+```
+
+base frequency varies by worm id (160-320hz range).
+
+**movement sounds**
+- triggered every 4th frame when worm moves
+- carrier frequency tracks movement vector
+- modulation rate tracks mood (memory weight average)
+- modulation depth scales with mood (3-18hz)
+
+**event sounds**
+
+| event | characteristics |
+|-------|-----------------|
+| mating | dual carriers, cross-modulation, perfect fifth harmony, 80ms |
+| eating | dual carriers, parallel modulation, lower frequencies, 120ms |
+| dying | single carrier, slow attack, 400ms decay |
+| material | single carrier, short blip (40ms) on new surface contact |
+
+frequency follows lydian mode intervals based on mood:
+```
+intervals = [1, 9/8, 5/4, 11/8]
+index = floor(|mood * 4|) % 4
+```
+
+### voice allocation
+
+- max 16 simultaneous worm voices
+- excess worms spawn silent (no oscillators)
+- when voiced worms die, freed slots reallocate to oldest silent worm
+- silent worms still function, just don't make sound
+
+### pop prevention
+
+all parameter changes use `cancelAndHoldAtTime` + short linear ramps (2-10ms) to avoid clicks. exponential ramps to 0.001 (not 0) prevent log domain errors.
+
+## simulation loop
+
+```
+1. process generators (every 3 frames)
+2. update worms (every 100ms, frame-rate independent)
+   - check breeding (every 500ms)
+   - apply environmental damage
+   - move each worm
+3. update tree decomposition
+4. physics pass (bottom-up, left-right)
+   - move particles by density
+   - handle displacement
+5. interaction pass
+   - fire spread/reactions
+   - water extinguishing
+   - dirt tree sprouting
+   - worm spawning conditions
+   - steam condensation
+   - acid dilution/corrosion
+   - lava reactions
+6. swap double-buffered grids
+7. update tree behavior (every 30 frames, 50 trees/frame batch)
+8. process fractal growth queue
+9. update water noise (every 10 frames)
+10. render to canvas (pixel-scaled)
+```
+
+double-buffering prevents read/write conflicts during physics updates.
+
+## emergent behaviors
+
+- **forest fires** spread through connected trees, releasing steam clouds
+- **water cycles** form when steam rises, hits glass ceiling, condenses
+- **worm ecosystems** stabilize around tree/water/dirt junctions
+- **genetic drift** visible as worm populations shift color over generations
+- **resource competition** as worms deplete local tree clusters
+- **acid rain** from dying worms seeds new hazards
+- **aquatic forests** when trees grow into water bodies
+
+## files
+
+| file | purpose |
+|------|---------|
+| state.js | constants, material definitions, global state |
+| audio.js | water noise, worm voices, synthesis utilities |
+| cells.js | grid physics, material interactions, rendering |
+| trees.js | fractal growth, decomposition, tree behavior |
+| worms.js | creature ai, breeding, memory system |
+| ui.js | controls, resize handling, material selection |
+| main.js | event handlers, game loop |
