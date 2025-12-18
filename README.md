@@ -8,6 +8,8 @@ real-time cellular automata with evolving creatures, procedural audio, and emerg
 
 pixelarium simulates a world of falling sand physics where materials interact chemically, trees grow fractally toward water, and pink worms navigate using learned memory that passes to offspring through breeding.
 
+[PLAY NOW](https://cursedhelm.com/games/pixelarium/)
+
 ## controls
 
 - **click+drag** paint selected material
