@@ -1,6 +1,6 @@
 # Pixelarium - Falling Sand Cellular Automata Game
 
-A real-time physics simulation featuring falling sand mechanics, complex material interactions, and emergent behaviors. Built with HTML5 Canvas and JavaScript.
+A real-time physics simulation featuring falling sand mechanics, complex material interactions, and emergent behaviors. 
 
 ## 🎮 Controls
 
