@@ -1,0 +1,3800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>pixelarium</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000; 
+        }
+        canvas { 
+            display: block; 
+            image-rendering: pixelated;
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            margin: 0 auto;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+            background: #333;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #555;
+        }
+        #swatch {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            flex-direction: row;
+            gap: 2px;
+            flex-wrap: wrap;
+            max-width: calc(100vw);
+        }
+        .material-btn {
+            width: 25px;
+            height: 25px;
+            border: 2px solid #666;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .material-btn.selected {
+            border-color: #fff;
+            box-shadow: 0 0 5px rgba(255,255,255,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="swatch">
+        <div class="material-btn" onclick="toggleMenu()" style="background: #555; color: #000;" id="menuToggle"></div>
+        <div class="material-btn toggleable selected" onclick="selectMaterial('SAND')" style="background: #dcb870; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('WATER')" style="background: #4a90e2; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('FIRE')" style="background: #ff6b35; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('DIRT')" style="background: #8b4513; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('TREE')" style="background: #228b22; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('GLASS')" style="background: #b4dcf0; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('STEAM')" style="background: #f0f0f0; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('ACID')" style="background: #32ff32; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('LAVA')" style="background: #ff4500; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('INCHWORM')" style="background: #ff69b4; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('ERASER')" style="background: #000; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="clearGrid()" style="background: #666; color: #fff;">↺</div>
+        <div class="material-btn toggleable" onclick="togglePause()" style="background: #666; color: #fff;">■</div>
+        <div class="material-btn toggleable" onclick="decreaseBrushSize()" style="background: #333; color: #fff;">-</div>
+        <div class="material-btn toggleable" id="brushSizeDisplay" style="background: #444; color: #fff;">3</div>
+        <div class="material-btn toggleable" onclick="increaseBrushSize()" style="background: #333; color: #fff;">+</div>
+    </div>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Grid settings - dynamically sized to browser window
+        const CELL_SIZE = 3;
+        
+        // Use visualViewport for mobile Safari compatibility
+        const getViewportDimensions = () => {
+            const vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+            const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+            return { width: vw, height: vh };
+        };
+        
+        const { width: viewportWidth, height: viewportHeight } = getViewportDimensions();
+        let GRID_WIDTH = Math.floor(viewportWidth / CELL_SIZE);
+        let GRID_HEIGHT = Math.floor(viewportHeight / CELL_SIZE);
+        
+        canvas.width = GRID_WIDTH * CELL_SIZE;
+        canvas.height = GRID_HEIGHT * CELL_SIZE;
+        
+        // Material types
+        const EMPTY = 0;
+        const SAND = 1;
+        const WATER = 2;
+        const FIRE = 3;
+        const DIRT = 4;
+        const TREE = 5;
+        const GLASS = 6;
+        const STEAM = 7;
+        const ACID = 8;
+        const ERASER = 9;
+        const DEAD_TREE = 10;
+        const LAVA = 11;
+        const INCHWORM = 12;
+        const INCHWORM_HEAD = 13;
+        const INCHWORM_BODY = 14;
+        
+        // Current selected material
+        let selectedMaterial = SAND;
+        let brushSize = 3;
+        
+        // Material properties
+        const materials = {
+            [EMPTY]: { density: 0, flammable: false, liquid: false },
+            [SAND]: { density: 3, flammable: false, liquid: false },
+            [WATER]: { density: 2, flammable: false, liquid: true },
+            [FIRE]: { density: 1, flammable: false, liquid: false, life: 60 },
+            [DIRT]: { density: 4, flammable: false, liquid: false },
+            [TREE]: { density: 5, flammable: true, liquid: false },
+            [GLASS]: { density: 8, flammable: false, liquid: false },
+            [STEAM]: { density: 0.5, flammable: false, liquid: false, life: 120 },
+            [ACID]: { density: 2.5, flammable: false, liquid: true, life: 60 },
+            [ERASER]: { density: 1, flammable: false, liquid: false },
+            [DEAD_TREE]: { density: 5, flammable: true, liquid: false },
+            [LAVA]: { density: 4, flammable: false, liquid: true },
+            [INCHWORM]: { density: 1, flammable: true, liquid: false, life: 300 },
+            [INCHWORM_HEAD]: { density: 1, flammable: true, liquid: false, life: 300 },
+            [INCHWORM_BODY]: { density: 1, flammable: true, liquid: false, life: 300 }
+        };
+        
+        // Colors for each material
+        const materialColors = {
+            [EMPTY]: [[0, 0, 0, 255]],
+            [SAND]: [
+                [220, 184, 112, 255],
+                [210, 174, 102, 255],
+                [200, 164, 92, 255],
+                [190, 154, 82, 255]
+            ],
+            [WATER]: [
+                [74, 144, 226, 255],
+                [64, 134, 216, 255],
+                [84, 154, 236, 255],
+                [54, 124, 206, 255]
+            ],
+            [FIRE]: [
+                [255, 107, 53, 255],
+                [255, 140, 0, 255],
+                [255, 69, 0, 255],
+                [255, 165, 0, 255]
+            ],
+            [DIRT]: [
+                [139, 69, 19, 255],
+                [160, 82, 45, 255],
+                [101, 67, 33, 255],
+                [120, 75, 25, 255]
+            ],
+            [TREE]: [
+                [34, 139, 34, 255],
+                [46, 125, 50, 255],
+                [56, 142, 60, 255],
+                [27, 94, 32, 255]
+            ],
+            [GLASS]: [
+                [180, 220, 240, 200],
+                [170, 210, 230, 200],
+                [190, 230, 250, 200],
+                [160, 200, 220, 200]
+            ],
+            [STEAM]: [
+                [240, 240, 240, 150],
+                [230, 230, 230, 140],
+                [250, 250, 250, 160],
+                [220, 220, 220, 130]
+            ],
+            [ACID]: [
+                [50, 255, 50, 255],
+                [40, 245, 40, 255],
+                [60, 255, 60, 255],
+                [30, 235, 30, 255]
+            ],
+            [ERASER]: [
+                [255, 100, 255, 255],
+                [245, 90, 245, 255],
+                [255, 110, 255, 255],
+                [235, 80, 235, 255]
+            ],
+            [DEAD_TREE]: [
+                [101, 67, 33, 255],
+                [120, 75, 25, 255],
+                [90, 60, 30, 255],
+                [110, 70, 35, 255]
+            ],
+            [LAVA]: [
+                [255, 69, 0, 255],
+                [255, 140, 0, 255], 
+                [255, 99, 71, 255],
+                [220, 20, 60, 255]
+            ],
+            [INCHWORM]: [
+                [255, 182, 193, 255], // Light pink
+                [255, 105, 180, 255], // Hot pink
+                [255, 20, 147, 255],  // Deep pink
+                [255, 192, 203, 255]  // Pink
+            ],
+            [INCHWORM_HEAD]: [
+                [199, 21, 133, 255],  // Medium violet red (darker pink for head)
+                [219, 112, 147, 255], // Pale violet red
+                [208, 32, 144, 255],  // Violet red
+                [186, 85, 211, 255]   // Medium orchid
+            ],
+            [INCHWORM_BODY]: [
+                [255, 20, 147, 255],  // Deep pink (bright pink for body)
+                [255, 105, 180, 255], // Hot pink
+                [255, 182, 193, 255], // Light pink
+                [255, 160, 122, 255]  // Light salmon pink
+            ]
+        };
+        
+        // Grid and image data
+        let grid, fireLifeGrid, steamLifeGrid, acidLifeGrid, lavaLifeGrid, inchwormLifeGrid, imageData;
+        let gridA, gridB, fireLifeGridA, fireLifeGridB, steamLifeGridA, steamLifeGridB;
+        let acidLifeGridA, acidLifeGridB, lavaLifeGridA, lavaLifeGridB, inchwormLifeGridA, inchwormLifeGridB;
+        let currentGridSet = 'A'; // Toggle between A and B grid sets
+        let treeGrowthQueue = []; // Queue for tree growth patterns
+        let treeDecompositionGrid; // Grid to track decomposing trees
+        let wormList = []; // Track all 3-pixel worms
+        let nextWormId = 1;
+        let colorCache; // Cache for consistent material colors per position
+        let tempCanvas, tempCtx; // Reusable canvas for rendering
+        let treeUpdateCounter = 0; // Counter for tree updates
+        let generators = []; // Array to store generator positions and materials
+        let rayCache = new Map(); // Cache for traced ray segments
+        
+        // Holographic Radiance Cascades lighting system
+        const EMISSION = {
+            [FIRE]: [1.5, 1.0, 0.6],
+            [LAVA]: [2.0, 0.6, 0.1],
+            [STEAM]: [0.1, 0.1, 0.15]
+        };
+        
+        const SIGMA_T = {
+            [SAND]: 0.7,
+            [DIRT]: 0.8,
+            [TREE]: 1.0,
+            [GLASS]: 0.0,
+            [DEAD_TREE]: 0.9,
+            [INCHWORM]: 0.3,
+            [INCHWORM_HEAD]: 0.3,
+            [INCHWORM_BODY]: 0.3
+        };
+        
+        // HRC data structures
+        let T = []; // Acceleration structure T_n
+        let R = []; // Angular fluence R_n
+        let L = null; // Final lighting result
+        let lightingFrameCounter = 0;
+        let currentQuadrant = 0;
+        let pow2 = []; // Pre-computed powers of 2
+        
+        // Lighting grid compression settings
+        let LIGHTING_SCALE = 2; // Compute lighting at 1/4 resolution
+        let LIGHTING_WIDTH = 0;
+        let LIGHTING_HEIGHT = 0;
+        
+        function initializeGrids() {
+            // Create double buffer grid sets
+            gridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(EMPTY));
+            gridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(EMPTY));
+            fireLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            fireLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            steamLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            steamLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            acidLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            acidLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            lavaLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            lavaLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            inchwormLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            inchwormLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            
+            treeDecompositionGrid = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            colorCache = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(null));
+            
+            // Initialize current grids to A set
+            grid = gridA;
+            fireLifeGrid = fireLifeGridA;
+            steamLifeGrid = steamLifeGridA;
+            acidLifeGrid = acidLifeGridA;
+            lavaLifeGrid = lavaLifeGridA;
+            inchwormLifeGrid = inchwormLifeGridA;
+            
+            // Create reusable canvas for rendering
+            tempCanvas = document.createElement('canvas');
+            tempCanvas.width = GRID_WIDTH;
+            tempCanvas.height = GRID_HEIGHT;
+            tempCtx = tempCanvas.getContext('2d');
+            
+            imageData = ctx.createImageData(GRID_WIDTH, GRID_HEIGHT);
+            
+            // Initialize compressed lighting grid
+            LIGHTING_WIDTH = Math.max(1, Math.floor(GRID_WIDTH / LIGHTING_SCALE));
+            LIGHTING_HEIGHT = Math.max(1, Math.floor(GRID_HEIGHT / LIGHTING_SCALE));
+            
+            // Initialize HRC data structures for compressed grid
+            const N = Math.ceil(Math.log2(Math.max(LIGHTING_WIDTH, LIGHTING_HEIGHT)));
+            
+            // Pre-compute powers of 2
+            pow2 = [];
+            for (let n = 0; n <= N + 2; n++) {
+                pow2[n] = Math.pow(2, n);
+            }
+            
+            // Initialize T_n acceleration structure
+            T = [];
+            for (let n = 0; n <= N; n++) {
+                T[n] = new Map();
+            }
+            
+            // Initialize R_n angular fluence
+            R = [];
+            for (let n = 0; n <= N; n++) {
+                R[n] = new Map();
+            }
+            
+            // Initialize final lighting array for compressed grid
+            L = new Float32Array(LIGHTING_WIDTH * LIGHTING_HEIGHT * 3);
+        }
+        
+        // DDA ray tracing function
+        function walkGrid(x0, y0, x1, y1, callback) {
+            const dx = Math.abs(x1 - x0);
+            const dy = Math.abs(y1 - y0);
+            const sx = x0 < x1 ? 1 : -1;
+            const sy = y0 < y1 ? 1 : -1;
+            let err = dx - dy;
+            let x = Math.floor(x0);
+            let y = Math.floor(y0);
+            const endX = Math.floor(x1);
+            const endY = Math.floor(y1);
+            
+            while (true) {
+                const gx = Math.floor(x / CELL_SIZE);
+                const gy = Math.floor(y / CELL_SIZE);
+                
+                if (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT) {
+                    if (!callback(gx, gy, 1.0)) break;
+                }
+                
+                if (x === endX && y === endY) break;
+                
+                const e2 = 2 * err;
+                if (e2 > -dy) {
+                    err -= dy;
+                    x += sx;
+                }
+                if (e2 < dx) {
+                    err += dx;
+                    y += sy;
+                }
+            }
+        }
+        
+        function traceSegment(x0, y0, x1, y1) {
+            const cacheKey = `${x0},${y0},${x1},${y1}`;
+            if (rayCache.has(cacheKey)) {
+                return rayCache.get(cacheKey);
+            }
+            
+            let L = [0, 0, 0];
+            let tau = 1.0;
+            
+            // HRC works in lighting coordinates, sample from full simulation grid
+            traceGridSegment(x0, y0, x1, y1, (lgx, lgy, len) => {
+                if (lgx >= 0 && lgx < LIGHTING_WIDTH && lgy >= 0 && lgy < LIGHTING_HEIGHT) {
+                    // Sample a region of the full grid for this lighting cell
+                    const startX = lgx * LIGHTING_SCALE;
+                    const startY = lgy * LIGHTING_SCALE;
+                    const endX = Math.min(startX + LIGHTING_SCALE, GRID_WIDTH);
+                    const endY = Math.min(startY + LIGHTING_SCALE, GRID_HEIGHT);
+                    
+                    let avgSigmaT = 0;
+                    let totalEmission = [0, 0, 0];
+                    let sampleCount = 0;
+                    
+                    // Sample the region
+                    for (let sy = startY; sy < endY; sy++) {
+                        for (let sx = startX; sx < endX; sx++) {
+                            if (sx < GRID_WIDTH && sy < GRID_HEIGHT) {
+                                const cell = grid[sy][sx];
+                                const sigmaT = SIGMA_T[cell] || 0;
+                                const Le = EMISSION[cell];
+                                
+                                avgSigmaT += sigmaT;
+                                sampleCount++;
+                                
+                                if (Le) {
+                                    let intensity = 1.0;
+                                    
+                                    // Fade fire and lava based on life
+                                    if (cell === FIRE) {
+                                        if (fireLifeGrid[sy] && fireLifeGrid[sy][sx] > 0) {
+                                            intensity = fireLifeGrid[sy][sx] / 60.0;
+                                        } else {
+                                            intensity = 0.5;
+                                        }
+                                    } else if (cell === LAVA) {
+                                        if (lavaLifeGrid[sy] && lavaLifeGrid[sy][sx] > 0) {
+                                            intensity = Math.min(1.0, lavaLifeGrid[sy][sx] / 100.0);
+                                        } else {
+                                            intensity = 1.0;
+                                        }
+                                    }
+                                    
+                                    totalEmission[0] += Le[0] * intensity;
+                                    totalEmission[1] += Le[1] * intensity;
+                                    totalEmission[2] += Le[2] * intensity;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Average the samples
+                    if (sampleCount > 0) {
+                        avgSigmaT /= sampleCount;
+                        totalEmission[0] /= sampleCount;
+                        totalEmission[1] /= sampleCount;
+                        totalEmission[2] /= sampleCount;
+                    }
+                    
+                    // Accumulate lighting
+                    L[0] += tau * totalEmission[0] * len;
+                    L[1] += tau * totalEmission[1] * len;
+                    L[2] += tau * totalEmission[2] * len;
+                    
+                    // Attenuate transmittance
+                    tau *= Math.exp(-avgSigmaT * len);
+                }
+                
+                return tau > 0.01;
+            });
+            
+            const result = {L, tau};
+            
+            // Cache short rays
+            const dist = Math.sqrt((x1-x0)*(x1-x0) + (y1-y0)*(y1-y0));
+            if (dist <= 4) { // Short in grid units
+                rayCache.set(cacheKey, result);
+            }
+            
+            return result;
+        }
+        
+        function traceGridSegment(x0, y0, x1, y1, callback) {
+            // DDA algorithm for grid coordinates
+            const dx = Math.abs(x1 - x0);
+            const dy = Math.abs(y1 - y0);
+            const sx = x0 < x1 ? 1 : -1;
+            const sy = y0 < y1 ? 1 : -1;
+            let err = dx - dy;
+            let x = Math.floor(x0);
+            let y = Math.floor(y0);
+            const endX = Math.floor(x1);
+            const endY = Math.floor(y1);
+            
+            while (true) {
+                if (!callback(x, y, 1.0)) break;
+                
+                if (x === endX && y === endY) break;
+                
+                const e2 = 2 * err;
+                if (e2 > -dy) {
+                    err -= dy;
+                    x += sx;
+                }
+                if (e2 < dx) {
+                    err += dx;
+                    y += sy;
+                }
+            }
+        }
+        
+        // HRC helper functions
+        function vn(n, k) {
+            // v_n(k) = (2^n, 2k - 2^n)
+            return [pow2[n], 2 * k - pow2[n]];
+        }
+        
+        function angle(vec) {
+            // angle([x, y]) = tan^-1(y/x)
+            return Math.atan2(vec[1], vec[0]);
+        }
+        
+        function An(n, i) {
+            // Angular size of cone in i-th direction at cascade n
+            const v1 = vn(n, i + 0.5);
+            const v2 = vn(n, i - 0.5);
+            return angle(v1) - angle(v2);
+        }
+        
+        function merge(traced, angular) {
+            // Merge traced segment with angular fluence
+            return {
+                L: [
+                    traced.L[0] + traced.tau * angular.L[0],
+                    traced.L[1] + traced.tau * angular.L[1], 
+                    traced.L[2] + traced.tau * angular.L[2]
+                ],
+                tau: traced.tau * angular.tau
+            };
+        }
+        
+        function getTnKey(p, k) {
+            return `${p[0]},${p[1]},${k}`;
+        }
+        
+        function getRnKey(p, i) {
+            return `${p[0]},${p[1]},${i}`;
+        }
+        
+        // Holographic Radiance Cascades implementation
+        function HRC(X, Y) {
+            const N = Math.ceil(Math.log2(Math.max(X, Y)));
+            
+            // Clear data structures
+            for (let n = 0; n <= N; n++) {
+                T[n].clear();
+                R[n].clear();
+            }
+            
+            // Phase 1: Initialize T_n for n = 0,1,2 with direct tracing
+            for (let n = 0; n <= Math.min(2, N); n++) {
+                const maxX = Math.ceil(X / pow2[n]);
+                for (let x = 0; x < maxX; x++) {
+                    for (let y = 0; y < Y; y++) {
+                        const p = [x * pow2[n], y];
+                        const maxK = pow2[n] + 1;
+                        
+                        for (let k = 0; k <= maxK; k++) {
+                            const v = vn(n, k);
+                            const endpoint = [p[0] + v[0], p[1] + v[1]];
+                            
+                            try {
+                                const traced = traceSegment(p[0], p[1], endpoint[0], endpoint[1]);
+                                T[n].set(getTnKey(p, k), traced);
+                            } catch (e) {
+                                T[n].set(getTnKey(p, k), {L: [0,0,0], tau: 1});
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Phase 2: Build T_n for n = 3...N using recursion
+            for (let n = 3; n <= N; n++) {
+                const maxX = Math.ceil(X / pow2[n]);
+                for (let x = 0; x < maxX; x++) {
+                    for (let y = 0; y < Y; y++) {
+                        const p = [x * pow2[n], y];
+                        const maxK = pow2[n] + 1;
+                        
+                        for (let k = 0; k <= maxK; k++) {
+                            if (Number.isInteger(2 * k)) {
+                                // Even case: Equation 18
+                                const kHalf = k;
+                                const v = vn(n-1, kHalf);
+                                const pNext = [p[0] + v[0], p[1] + v[1]];
+                                
+                                const t1 = T[n-1].get(getTnKey(p, kHalf)) || {L: [0,0,0], tau: 1};
+                                const t2 = T[n-1].get(getTnKey(pNext, kHalf)) || {L: [0,0,0], tau: 1};
+                                
+                                const merged = merge(t1, t2);
+                                T[n].set(getTnKey(p, k), merged);
+                            } else {
+                                // Odd case: Equation 20
+                                const k1 = k - 0.5;
+                                const k2 = k + 0.5;
+                                
+                                const v1 = vn(n-1, k1);
+                                const v2 = vn(n-1, k2);
+                                const p1 = [p[0] + v1[0], p[1] + v1[1]];
+                                const p2 = [p[0] + v2[0], p[1] + v2[1]];
+                                
+                                const t1_1 = T[n-1].get(getTnKey(p, k1)) || {L: [0,0,0], tau: 1};
+                                const t1_2 = T[n-1].get(getTnKey(p1, k2)) || {L: [0,0,0], tau: 1};
+                                const t2_1 = T[n-1].get(getTnKey(p, k2)) || {L: [0,0,0], tau: 1};
+                                const t2_2 = T[n-1].get(getTnKey(p2, k1)) || {L: [0,0,0], tau: 1};
+                                
+                                const F1 = merge(t1_1, t1_2);
+                                const F2 = merge(t2_1, t2_2);
+                                
+                                const result = {
+                                    L: [(F1.L[0] + F2.L[0]) / 2, (F1.L[1] + F2.L[1]) / 2, (F1.L[2] + F2.L[2]) / 2],
+                                    tau: (F1.tau + F2.tau) / 2
+                                };
+                                
+                                T[n].set(getTnKey(p, k), result);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Phase 3: Build R_n from N-1 down to 0
+            for (let n = N - 1; n >= 0; n--) {
+                const maxX = Math.ceil(X / pow2[n]);
+                for (let x = 0; x < maxX; x++) {
+                    for (let y = 0; y < Y; y++) {
+                        const p = [x * pow2[n], y];
+                        const maxI = pow2[n];
+                        
+                        for (let i = 0; i < maxI; i++) {
+                            let Fplus, Fminus;
+                            
+                            if (x % 2 === 1) {
+                                // Odd x: Equation 14
+                                const jPlus = 2 * i + 0.5;
+                                const jMinus = 2 * i - 0.5;
+                                
+                                const vPlus = vn(n, i + 0.5);
+                                const vMinus = vn(n, i - 0.5);
+                                const qPlus = [p[0] + vPlus[0], p[1] + vPlus[1]];
+                                const qMinus = [p[0] + vMinus[0], p[1] + vMinus[1]];
+                                
+                                const tPlus = T[n].get(getTnKey(p, i + 0.5)) || {L: [0,0,0], tau: 1};
+                                const tMinus = T[n].get(getTnKey(p, i - 0.5)) || {L: [0,0,0], tau: 1};
+                                
+                                const rPlus = R[n+1].get(getRnKey(qPlus, jPlus)) || {L: [0,0,0], tau: 1};
+                                const rMinus = R[n+1].get(getRnKey(qMinus, jMinus)) || {L: [0,0,0], tau: 1};
+                                
+                                const aPlus = An(n+1, jPlus);
+                                const aMinus = An(n+1, jMinus);
+                                
+                                const scaledRPlus = {L: [rPlus.L[0] * aPlus, rPlus.L[1] * aPlus, rPlus.L[2] * aPlus], tau: rPlus.tau};
+                                const scaledRMinus = {L: [rMinus.L[0] * aMinus, rMinus.L[1] * aMinus, rMinus.L[2] * aMinus], tau: rMinus.tau};
+                                
+                                Fplus = merge(tPlus, scaledRPlus);
+                                Fminus = merge(tMinus, scaledRMinus);
+                            } else {
+                                // Even x: Equation 15
+                                const jPlus = 2 * i + 0.5;
+                                const jMinus = 2 * i - 0.5;
+                                
+                                const F0plus = R[n+1].get(getRnKey(p, jPlus)) || {L: [0,0,0], tau: 1};
+                                const F0minus = R[n+1].get(getRnKey(p, jMinus)) || {L: [0,0,0], tau: 1};
+                                
+                                const v2Plus = vn(n, 2 * (i + 0.5));
+                                const v2Minus = vn(n, 2 * (i - 0.5));
+                                const q2Plus = [p[0] + v2Plus[0], p[1] + v2Plus[1]];
+                                const q2Minus = [p[0] + v2Minus[0], p[1] + v2Minus[1]];
+                                
+                                const t2Plus = T[n+1].get(getTnKey(p, 2 * i + 1)) || {L: [0,0,0], tau: 1};
+                                const t2Minus = T[n+1].get(getTnKey(p, 2 * i - 1)) || {L: [0,0,0], tau: 1};
+                                
+                                const r2Plus = R[n+1].get(getRnKey(q2Plus, jPlus)) || {L: [0,0,0], tau: 1};
+                                const r2Minus = R[n+1].get(getRnKey(q2Minus, jMinus)) || {L: [0,0,0], tau: 1};
+                                
+                                const aPlus = An(n+1, jPlus);
+                                const aMinus = An(n+1, jMinus);
+                                
+                                const scaledR2Plus = {L: [r2Plus.L[0] * aPlus, r2Plus.L[1] * aPlus, r2Plus.L[2] * aPlus], tau: r2Plus.tau};
+                                const scaledR2Minus = {L: [r2Minus.L[0] * aMinus, r2Minus.L[1] * aMinus, r2Minus.L[2] * aMinus], tau: r2Minus.tau};
+                                
+                                const F1plus = merge(t2Plus, scaledR2Plus);
+                                const F1minus = merge(t2Minus, scaledR2Minus);
+                                
+                                Fplus = {
+                                    L: [(F0plus.L[0] + F1plus.L[0]) / 2, (F0plus.L[1] + F1plus.L[1]) / 2, (F0plus.L[2] + F1plus.L[2]) / 2],
+                                    tau: (F0plus.tau + F1plus.tau) / 2
+                                };
+                                Fminus = {
+                                    L: [(F0minus.L[0] + F1minus.L[0]) / 2, (F0minus.L[1] + F1minus.L[1]) / 2, (F0minus.L[2] + F1minus.L[2]) / 2],
+                                    tau: (F0minus.tau + F1minus.tau) / 2
+                                };
+                            }
+                            
+                            const result = {
+                                L: [Fplus.L[0] + Fminus.L[0], Fplus.L[1] + Fminus.L[1], Fplus.L[2] + Fminus.L[2]],
+                                tau: Fplus.tau * Fminus.tau
+                            };
+                            
+                            R[n].set(getRnKey(p, i), result);
+                        }
+                    }
+                }
+            }
+            
+            return R[0];
+        }
+        
+        // Working lighting function 
+        function updateLighting() {
+            // Update every 30 frames to reduce CPU load
+            lightingFrameCounter++;
+            if (lightingFrameCounter % 30 !== 0) {
+                return;
+            }
+            
+            // Clear lighting array
+            if (!L || L.length === 0) {
+                return;
+            }
+            L.fill(0);
+            
+            // First pass: find all light sources efficiently
+            const lightSources = [];
+            for (let y = 0; y < GRID_HEIGHT; y += LIGHTING_SCALE) {
+                for (let x = 0; x < GRID_WIDTH; x += LIGHTING_SCALE) {
+                    // Sample just one pixel per lighting cell for emitters
+                    const cell = grid[y][x];
+                    const emission = EMISSION[cell];
+                    
+                    if (emission) {
+                        let intensity = 1.0;
+                        if (cell === FIRE) intensity = 4.0;
+                        else if (cell === LAVA) intensity = 6.0;
+                        
+                        lightSources.push({
+                            lx: Math.floor(x / LIGHTING_SCALE),
+                            ly: Math.floor(y / LIGHTING_SCALE),
+                            light: [
+                                emission[0] * intensity,
+                                emission[1] * intensity,
+                                emission[2] * intensity
+                            ]
+                        });
+                    }
+                }
+            }
+            
+            // Second pass: propagate light from sources
+            for (const source of lightSources) {
+                const radius = 12; // Light radius in lighting grid units
+                
+                for (let ly = Math.max(0, source.ly - radius); ly < Math.min(LIGHTING_HEIGHT, source.ly + radius); ly++) {
+                    for (let lx = Math.max(0, source.lx - radius); lx < Math.min(LIGHTING_WIDTH, source.lx + radius); lx++) {
+                        const dx = lx - source.lx;
+                        const dy = ly - source.ly;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (dist <= radius) {
+                            const falloff = 1.0 / (1.0 + dist * 0.15);
+                            const lightIdx = (ly * LIGHTING_WIDTH + lx) * 3;
+                            
+                            if (lightIdx + 2 < L.length) {
+                                L[lightIdx] += source.light[0] * falloff;
+                                L[lightIdx + 1] += source.light[1] * falloff;
+                                L[lightIdx + 2] += source.light[2] * falloff;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        function applyCrossBlur() {
+            if (!L || L.length === 0) return;
+            
+            const blurred = new Float32Array(L.length);
+            // Simple cross pattern: center weight 4, adjacent weights 1
+            
+            for (let y = 1; y < LIGHTING_HEIGHT - 1; y++) {
+                for (let x = 1; x < LIGHTING_WIDTH - 1; x++) {
+                    for (let c = 0; c < 3; c++) {
+                        const centerIdx = (y * LIGHTING_WIDTH + x) * 3 + c;
+                        const topIdx = ((y-1) * LIGHTING_WIDTH + x) * 3 + c;
+                        const bottomIdx = ((y+1) * LIGHTING_WIDTH + x) * 3 + c;
+                        const leftIdx = (y * LIGHTING_WIDTH + (x-1)) * 3 + c;
+                        const rightIdx = (y * LIGHTING_WIDTH + (x+1)) * 3 + c;
+                        
+                        if (centerIdx < L.length && topIdx < L.length && bottomIdx < L.length && 
+                            leftIdx < L.length && rightIdx < L.length) {
+                            const sum = L[centerIdx] * 4 + L[topIdx] + L[bottomIdx] + L[leftIdx] + L[rightIdx];
+                            blurred[centerIdx] = sum / 8;
+                        } else {
+                            blurred[centerIdx] = L[centerIdx] || 0;
+                        }
+                    }
+                }
+            }
+            
+            // Copy blurred result back
+            for (let i = 0; i < L.length; i++) {
+                L[i] = blurred[i] || 0;
+            }
+        }
+        
+        initializeGrids();
+        
+        let isMouseDown = false;
+        let mouseX = 0;
+        let mouseY = 0;
+        let isPaused = false;
+        
+        function getRandomColor(material) {
+            const colors = materialColors[material];
+            return colors[0]; // Use first color consistently
+        }
+        
+        function getWormColor(material, x, y) {
+            // Find which worm this pixel belongs to
+            const worm = wormList.find(w => 
+                (w.head.x === x && w.head.y === y) ||
+                (w.body.x === x && w.body.y === y) ||
+                (w.tail.x === x && w.tail.y === y)
+            );
+            
+            if (worm && worm.colors) {
+                // Use the worm's individual genetic colors
+                const partName = (() => {
+                    if (worm.head.x === x && worm.head.y === y) return 'head';
+                    if (worm.body.x === x && worm.body.y === y) return 'body';
+                    if (worm.tail.x === x && worm.tail.y === y) return 'tail';
+                    return 'tail';
+                })();
+                
+                // Pick a variant that's stable for this pixel but differs across worms
+                const colorVariants = worm.colors[partName];
+                const idx = worm.id & 3;   // 0-3 stable per worm
+                return colorVariants[idx];
+            }
+            
+            // Fallback to default material colors
+            return getRandomColor(material);
+        }
+
+        function getPixelColor(material, x, y) {
+            // For worm pixels, ALWAYS use individual worm colors (no caching)
+            if (material === INCHWORM || material === INCHWORM_HEAD || material === INCHWORM_BODY) {
+                return getWormColor(material, x, y);
+            }
+            
+            // For non-worm materials, use caching as before
+            if (colorCache[y][x] && colorCache[y][x].material === material) {
+                return colorCache[y][x].color;
+            }
+            
+            // Generate new random color for new pixel and cache it
+            const color = getRandomColor(material);
+            colorCache[y][x] = { material, color };
+            return color;
+        }
+        
+        function clearColorCache(x, y) {
+            if (colorCache && colorCache[y] && colorCache[y][x]) {
+                colorCache[y][x] = null;
+            }
+        }
+        
+        function selectMaterial(materialName) {
+            const materialMap = { SAND, WATER, FIRE, DIRT, TREE, GLASS, STEAM, ACID, ERASER, DEAD_TREE, LAVA, INCHWORM };
+            selectedMaterial = materialMap[materialName];
+            
+            // Update UI
+            document.querySelectorAll('.material-btn').forEach(btn => btn.classList.remove('selected'));
+            // Find the button that was clicked by matching the onclick attribute
+            document.querySelectorAll('.material-btn').forEach(btn => {
+                if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`selectMaterial('${materialName}')`)) {
+                    btn.classList.add('selected');
+                }
+            });
+        }
+        
+        function getGridPos(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((clientX - rect.left) / CELL_SIZE);
+            const y = Math.floor((clientY - rect.top) / CELL_SIZE);
+            return { x, y };
+        }
+        
+        function isValidPos(x, y) {
+            return x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT;
+        }
+        
+        function canPlaceTree(x, y, gridRef = grid) {
+            if (!isValidPos(x, y) || gridRef[y][x] !== EMPTY) {
+                return false;
+            }
+            return true;
+        }
+        
+        
+        function addMaterial(x, y, material, radius = 3) {
+            // Special handling for worm spawning
+            if (material === INCHWORM) {
+                spawnSingleWorm(x, y);
+                return;
+            }
+            
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (isValidPos(nx, ny) && Math.sqrt(dx*dx + dy*dy) <= radius) {
+                        if ((grid[ny][nx] === EMPTY || material === ERASER) && Math.random() < 0.2) {
+                            if (material === ERASER) {
+                                // Eraser removes whatever is there
+                                grid[ny][nx] = EMPTY;
+                                fireLifeGrid[ny][nx] = 0;
+                                steamLifeGrid[ny][nx] = 0;
+                                acidLifeGrid[ny][nx] = 0;
+                                lavaLifeGrid[ny][nx] = 0;
+                                inchwormLifeGrid[ny][nx] = 0;
+                                treeDecompositionGrid[ny][nx] = 0;
+                            } else {
+                                grid[ny][nx] = material;
+                                if (material === FIRE) {
+                                    fireLifeGrid[ny][nx] = materials[FIRE].life;
+                                } else if (material === STEAM) {
+                                    steamLifeGrid[ny][nx] = materials[STEAM].life;
+                                } else if (material === ACID) {
+                                    acidLifeGrid[ny][nx] = materials[ACID].life;
+                                } else if (material === DEAD_TREE) {
+                                    treeDecompositionGrid[ny][nx] = 180; // Start decomposition timer
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        function spawnSingleWorm(centerX, centerY) {
+            // Find empty spaces around the click position for a single worm
+            const spawnCandidates = [];
+            
+            // Check 5x5 area around click position
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const x = centerX + dx;
+                    const y = centerY + dy;
+                    
+                    if (isValidPos(x, y) && grid[y][x] === EMPTY) {
+                        // Check if this position has surface contact
+                        if (hasValidSurface(x, y)) {
+                            spawnCandidates.push({ x, y });
+                        }
+                    }
+                }
+            }
+            
+            // Spawn worm if enough empty spaces with surface contact
+            if (spawnCandidates.length >= 3) {
+                spawnThreePixelWorm(spawnCandidates, grid, inchwormLifeGrid);
+            }
+        }
+
+        function spawnThreePixelWormWithMemory(spawnCandidates, grid, lifeGrid, parent1, parent2) {
+            // Shuffle candidates to pick random positions
+            const shuffled = [...spawnCandidates];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            
+            // Try to find 3 connected positions
+            for (let i = 0; i < shuffled.length - 2; i++) {
+                const head = shuffled[i];
+                
+                // Find positions adjacent to head for body
+                const bodyOptions = shuffled.filter(pos => 
+                    Math.abs(pos.x - head.x) <= 1 && Math.abs(pos.y - head.y) <= 1 && 
+                    !(pos.x === head.x && pos.y === head.y)
+                );
+                
+                if (bodyOptions.length > 0) {
+                    const body = bodyOptions[0];
+                    
+                    // Find positions adjacent to body for tail
+                    const tailOptions = shuffled.filter(pos => 
+                        Math.abs(pos.x - body.x) <= 1 && Math.abs(pos.y - body.y) <= 1 && 
+                        !(pos.x === head.x && pos.y === head.y) && 
+                        !(pos.x === body.x && pos.y === body.y)
+                    );
+                    
+                    if (tailOptions.length > 0) {
+                        const tail = tailOptions[0];
+                        
+                        // Create the worm with inherited memory
+                        const wormId = nextWormId++;
+                        const defaultColors = {
+                            tail: materialColors[INCHWORM].map(c => [...c]),
+                            head: materialColors[INCHWORM_HEAD].map(c => [...c]),
+                            body: materialColors[INCHWORM_BODY].map(c => [...c])
+                        };
+                        const worm = {
+                            id: wormId,
+                            head: { x: head.x, y: head.y },
+                            body: { x: body.x, y: body.y },
+                            tail: { x: tail.x, y: tail.y },
+                            life: materials[INCHWORM].life,
+                            direction: { x: 0, y: 0 },
+                            memory: inheritMemory(parent1, parent2),
+                            currentGoal: null,
+                            blockedCounter: 0,
+                            colors: defaultColors
+                        };
+                        
+                        wormList.push(worm);
+                        
+                        // Place worm pixels
+                        grid[head.y][head.x] = INCHWORM_HEAD;
+                        grid[body.y][body.x] = INCHWORM_BODY;
+                        grid[tail.y][tail.x] = INCHWORM;
+                        
+                        lifeGrid[head.y][head.x] = worm.life;
+                        lifeGrid[body.y][body.x] = worm.life;
+                        lifeGrid[tail.y][tail.x] = worm.life;
+                        
+                        break;
+                    }
+                }
+            }
+        }
+
+        function calculateColorGenetics(parent1, parent2) {
+            // Calculate color inheritance based on memory pattern differences
+            const p1MemorySum = parent1.memory.reduce((sum, mem) => sum + mem.weight, 0);
+            const p2MemorySum = parent2.memory.reduce((sum, mem) => sum + mem.weight, 0);
+            
+            // Calculate memory diversity (how varied their experiences are)
+            const p1Diversity = parent1.memory.length > 0 ? 
+                Math.abs(Math.max(...parent1.memory.map(m => m.weight)) - Math.min(...parent1.memory.map(m => m.weight))) : 0;
+            const p2Diversity = parent2.memory.length > 0 ? 
+                Math.abs(Math.max(...parent2.memory.map(m => m.weight)) - Math.min(...parent2.memory.map(m => m.weight))) : 0;
+            
+            // Color inheritance ratios based on memory strength and diversity
+            const totalMemory = Math.abs(p1MemorySum) + Math.abs(p2MemorySum) + 1;
+            const p1Influence = Math.abs(p1MemorySum) / totalMemory;
+            const p2Influence = Math.abs(p2MemorySum) / totalMemory;
+            
+            // Mutation chance based on memory diversity difference
+            const diversityDiff = Math.abs(p1Diversity - p2Diversity);
+            const mutationChance = Math.min(0.3, diversityDiff * 0.05); // Max 30% mutation chance
+            
+            return {
+                parent1Influence: p1Influence,
+                parent2Influence: p2Influence,
+                mutationChance: mutationChance
+            };
+        }
+        
+        function generateOffspringColors(parent1, parent2, genetics, inheritedMemory) {
+            // Generate unique colors for offspring based on genetic mixing and memory inheritance
+            // Start from parent colors if available, not global material colors
+            const baseColors = {
+                tail: parent1.colors ? parent1.colors.tail : materialColors[INCHWORM],
+                head: parent1.colors ? parent1.colors.head : materialColors[INCHWORM_HEAD], 
+                body: parent1.colors ? parent1.colors.body : materialColors[INCHWORM_BODY]
+            };
+            
+            // Calculate brightness modifier based on inherited memory quality
+            const memoryWeightSum = inheritedMemory.reduce((sum, mem) => sum + mem.weight, 0);
+            const avgMemoryWeight = inheritedMemory.length > 0 ? memoryWeightSum / inheritedMemory.length : 0;
+            
+            // If no meaningful memories, use parent memory summary for color inheritance
+            let actualAvgWeight = avgMemoryWeight;
+            if (inheritedMemory.length === 0) {
+                const p1Sum = parent1.memory.reduce((sum, mem) => sum + mem.weight, 0);
+                const p2Sum = parent2.memory.reduce((sum, mem) => sum + mem.weight, 0);
+                const totalParentMemories = parent1.memory.length + parent2.memory.length;
+                actualAvgWeight = totalParentMemories > 0 ? (p1Sum + p2Sum) / totalParentMemories : 0;
+            }
+            
+            // Calculate hue bias based on food vs breeding success
+            const foodPos = inheritedMemory.filter(m => m.kind === 'food' && m.weight > 0)
+                                          .reduce((s, m) => s + m.weight, 0);
+            const breedPos = inheritedMemory.filter(m => m.kind === 'breed' && m.weight > 0)
+                                           .reduce((s, m) => s + m.weight, 0);
+            const totalPos = foodPos + breedPos + 1e-6; // avoid division by zero
+            const hueBias = (foodPos - breedPos) / totalPos; // +1 => all food, -1 => all breeding
+            
+            // Brightness adjustment: positive memories = lighter, negative = darker
+            // Increased sensitivity for more visible inheritance
+            let brightnessModifier = actualAvgWeight * 0.4; // Increased from 0.15 to 0.4
+            
+            // Force visible brightness shifts for inheritance
+            if (Math.abs(brightnessModifier) < 0.15) {
+                brightnessModifier = 0.15 * Math.sign(brightnessModifier || (Math.random()<0.5?1:-1));
+            }
+            
+            // Cap at reasonable limits
+            brightnessModifier = Math.max(-0.6, Math.min(0.6, brightnessModifier));
+            
+            // Define hue tint palettes
+            const foodTint = [255, 195, 145];   // warmer, peachy-pink
+            const breedTint = [200, 120, 255];  // cooler, lilac-pink
+            const neutralTint = [255, 182, 193]; // standard light pink
+            
+            // Blend tints based on hue bias
+            const blendTints = (tint1, tint2, bias) => {
+                const absB = Math.abs(bias);
+                return bias >= 0 
+                    ? tint1.map((v, i) => Math.round(v * absB + tint2[i] * (1 - absB)))
+                    : tint2.map((v, i) => Math.round(v * absB + tint1[i] * (1 - absB)));
+            };
+            
+            const baseTint = blendTints(foodTint, breedTint, hueBias);
+            
+            const offspringColors = {
+                tail: [],
+                head: [],
+                body: []
+            };
+            
+            // For each body part, create color variants by blending parents
+            for (const [part, baseColorArray] of Object.entries(baseColors)) {
+                for (let i = 0; i < 4; i++) {
+                    const p1Color = (parent1.colors ?? baseColors)[part][i];
+                    const p2Color = (parent2.colors ?? baseColors)[part][i];
+                    
+                    let color = [0, 0, 0, 255];
+                    // Blend parent colors based on memory influence
+                    for (let c = 0; c < 3; c++) { // RGB channels
+                        color[c] = Math.round(
+                            p1Color[c] * genetics.parent1Influence + 
+                            p2Color[c] * genetics.parent2Influence
+                        );
+                    }
+                    
+                    // Apply hue tint based on food vs breeding bias
+                    for (let c = 0; c < 3; c++) {
+                        color[c] = Math.round(color[c] * 0.7 + baseTint[c] * 0.3); // 30% tint influence
+                    }
+                    
+                    // Apply brightness adjustment based on inherited memory patterns
+                    for (let c = 0; c < 3; c++) { // RGB channels
+                        if (brightnessModifier >= 0) {
+                            // Lighten: move toward white (255)
+                            color[c] = Math.round(color[c] + (255 - color[c]) * brightnessModifier);
+                        } else {
+                            // Darken: move toward black (0)
+                            color[c] = Math.round(color[c] * (1 + brightnessModifier));
+                        }
+                        color[c] = Math.max(0, Math.min(255, color[c]));
+                    }
+                    
+                    // Apply mutations based on memory diversity (smaller now that we have brightness)
+                    if (Math.random() < genetics.mutationChance) {
+                        // Mutate each RGB channel slightly
+                        for (let c = 0; c < 3; c++) {
+                            const mutation = (Math.random() - 0.5) * 40; // ±20 per channel (reduced)
+                            color[c] = Math.max(0, Math.min(255, color[c] + mutation));
+                        }
+                    }
+                    
+                    offspringColors[part].push(color);
+                }
+            }
+            
+            return offspringColors;
+        }
+        
+        function inheritMemory(parent1, parent2) {
+            // Combine memories from both parents
+            const combinedMemory = [];
+            
+            // Take some memories from each parent
+            const parent1Memories = parent1.memory.slice(-10); // Last 10 memories from parent1
+            const parent2Memories = parent2.memory.slice(-10); // Last 10 memories from parent2
+            
+            // Interleave memories from both parents
+            const maxLength = Math.max(parent1Memories.length, parent2Memories.length);
+            for (let i = 0; i < maxLength; i++) {
+                if (i < parent1Memories.length) {
+                    combinedMemory.push({ ...parent1Memories[i] });
+                }
+                if (i < parent2Memories.length && combinedMemory.length < 15) {
+                    combinedMemory.push({ ...parent2Memories[i] });
+                }
+            }
+            
+            // Add some mutation - randomly modify some inherited memories
+            for (let memory of combinedMemory) {
+                if (Math.random() < 0.1) { // 10% chance to mutate
+                    // Slightly modify the movement direction
+                    if (Math.random() < 0.5) {
+                        memory.movement.dx += Math.random() < 0.5 ? -1 : 1;
+                        memory.movement.dx = Math.max(-1, Math.min(1, memory.movement.dx));
+                    }
+                    if (Math.random() < 0.5) {
+                        memory.movement.dy += Math.random() < 0.5 ? -1 : 1;
+                        memory.movement.dy = Math.max(-1, Math.min(1, memory.movement.dy));
+                    }
+                }
+            }
+            
+            return combinedMemory;
+        }
+
+        // Fractal tree growth functions
+        function startTreeGrowth(x, y) {
+            if (isValidPos(x, y)) {
+                treeGrowthQueue.push({
+                    x: x, y: y, direction: 0, length: Math.floor(Math.random() * 8) + 12,
+                    thickness: 3, generation: 0, age: 0
+                });
+            }
+        }
+        
+        function growFractalTree(treeNode, workingGrid) {
+            if (treeNode.age >= treeNode.length || !isValidPos(treeNode.x, treeNode.y)) {
+                return false;
+            }
+            
+            if (workingGrid[treeNode.y][treeNode.x] === GLASS) {
+                return false;
+            }
+            
+            // Calculate direction with some randomness
+            let dx = 0, dy = -1;
+            if (treeNode.direction === -1) { dx = -1; dy = -1; }
+            if (treeNode.direction === 1) { dx = 1; dy = -1; }
+            
+            // Add random sway to make trees more natural
+            if (Math.random() < 0.3) {
+                dx += (Math.random() - 0.5) * 0.8;
+            }
+            
+            const nextX = Math.floor(treeNode.x + dx);
+            const nextY = treeNode.y + dy;
+            
+            if (!isValidPos(nextX, nextY) || workingGrid[nextY][nextX] === GLASS) {
+                return false;
+            }
+            
+            // Place tree pixels with thickness (trunk width)
+            for (let t = 0; t < treeNode.thickness; t++) {
+                const growX = Math.floor(treeNode.x + (Math.random() - 0.5) * treeNode.thickness);
+                const growY = treeNode.y;
+                
+                if (isValidPos(growX, growY) && workingGrid[growY][growX] === EMPTY) {
+                    // Check if placing this pixel would cross glass
+                    let blocked = false;
+                    const steps = Math.abs(growX - treeNode.x);
+                    for (let step = 0; step <= steps; step++) {
+                        const checkX = treeNode.x + Math.sign(growX - treeNode.x) * step;
+                        if (isValidPos(checkX, growY) && workingGrid[growY][checkX] === GLASS) {
+                            blocked = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!blocked) {
+                        workingGrid[growY][growX] = TREE;
+                    }
+                }
+            }
+            
+            treeNode.x = nextX;
+            treeNode.y = nextY;
+            treeNode.age++;
+            
+            // Create branches with varying probability based on thickness (thicker = more branching)
+            const branchProbability = 0.2 + (treeNode.thickness * 0.1);
+            if (treeNode.generation < 3 && treeNode.age > 3 && treeNode.age % 4 === 0 && Math.random() < branchProbability) {
+                // Left branch
+                if (Math.random() < 0.5) {
+                    treeGrowthQueue.push({
+                        x: treeNode.x, y: treeNode.y, direction: -1,
+                        length: Math.floor(treeNode.length * 0.7),
+                        thickness: Math.max(1, treeNode.thickness - 1),
+                        generation: treeNode.generation + 1, age: 0
+                    });
+                }
+                // Right branch  
+                if (Math.random() < 0.5) {
+                    treeGrowthQueue.push({
+                        x: treeNode.x, y: treeNode.y, direction: 1,
+                        length: Math.floor(treeNode.length * 0.7),
+                        thickness: Math.max(1, treeNode.thickness - 1),
+                        generation: treeNode.generation + 1, age: 0
+                    });
+                }
+            }
+            
+            return true;
+        }
+        
+        
+        
+        // Worm functions
+        function spawnThreePixelWorm(spawnCandidates, grid, lifeGrid) {
+            // Shuffle candidates to pick random positions
+            const shuffled = [...spawnCandidates];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            
+            // Try to find 3 connected positions
+            for (let i = 0; i < shuffled.length - 2; i++) {
+                const head = shuffled[i];
+                
+                // Find positions adjacent to head for body
+                const bodyOptions = shuffled.filter(pos => 
+                    Math.abs(pos.x - head.x) <= 1 && Math.abs(pos.y - head.y) <= 1 && 
+                    !(pos.x === head.x && pos.y === head.y)
+                );
+                
+                if (bodyOptions.length > 0) {
+                    const body = bodyOptions[0];
+                    
+                    // Find positions adjacent to body for tail
+                    const tailOptions = shuffled.filter(pos => 
+                        Math.abs(pos.x - body.x) <= 1 && Math.abs(pos.y - body.y) <= 1 && 
+                        !(pos.x === head.x && pos.y === head.y) && 
+                        !(pos.x === body.x && pos.y === body.y)
+                    );
+                    
+                    if (tailOptions.length > 0) {
+                        const tail = tailOptions[0];
+                        
+                        // Create the worm with unique default colors (deep clone)
+                        const wormId = nextWormId++;
+                        const defaultColors = {
+                            tail: materialColors[INCHWORM].map(c => [...c]),          // deep-clone
+                            head: materialColors[INCHWORM_HEAD].map(c => [...c]),
+                            body: materialColors[INCHWORM_BODY].map(c => [...c])
+                        };
+                        // Founders start with base colors - inheritance happens in breeding
+                        
+                        const worm = {
+                            id: wormId,
+                            head: { x: head.x, y: head.y },
+                            body: { x: body.x, y: body.y },
+                            tail: { x: tail.x, y: tail.y },
+                            life: materials[INCHWORM].life,
+                            memory: [], // Array of movement memories: {position: {x, y}, movement: {dx, dy}, weight}
+                            currentGoal: null, // Current movement intention: {dx, dy}
+                            lastHeadPosition: null, // For stuck detection
+                            colors: defaultColors // Individual genetic colors
+                        };
+                        
+                        wormList.push(worm);
+                        
+                        // Place worm pixels
+                        grid[head.y][head.x] = INCHWORM_HEAD;
+                        grid[body.y][body.x] = INCHWORM_BODY;
+                        grid[tail.y][tail.x] = INCHWORM;
+                        
+                        // Clear color cache for new worm colors to show
+                        clearColorCache(head.x, head.y);
+                        clearColorCache(body.x, body.y);
+                        clearColorCache(tail.x, tail.y);
+                        
+                        lifeGrid[head.y][head.x] = worm.life;
+                        lifeGrid[body.y][body.x] = worm.life;
+                        lifeGrid[tail.y][tail.x] = worm.life;
+                        
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function spawnOffspringWithInheritedMemory(spawnCandidates, grid, lifeGrid, parent1, parent2) {
+            // First spawn the worm using the existing logic
+            const shuffled = [...spawnCandidates];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            
+            // Try to find 3 connected positions
+            for (let i = 0; i < shuffled.length - 2; i++) {
+                const head = shuffled[i];
+                
+                const bodyOptions = shuffled.filter(pos => 
+                    Math.abs(pos.x - head.x) <= 1 && Math.abs(pos.y - head.y) <= 1 && 
+                    !(pos.x === head.x && pos.y === head.y)
+                );
+                
+                if (bodyOptions.length > 0) {
+                    const body = bodyOptions[0];
+                    
+                    const tailOptions = shuffled.filter(pos => 
+                        Math.abs(pos.x - body.x) <= 1 && Math.abs(pos.y - body.y) <= 1 && 
+                        !(pos.x === head.x && pos.y === head.y) && 
+                        !(pos.x === body.x && pos.y === body.y)
+                    );
+                    
+                    if (tailOptions.length > 0) {
+                        const tail = tailOptions[0];
+                        
+                        // Create the offspring worm with genetic color inheritance
+                        const wormId = nextWormId++;
+                        
+                        // First inherit memory from parents
+                        const inheritedMemory = inheritMemoryFromParents(parent1, parent2);
+                        
+                        // Then calculate genetics and colors based on memory inheritance
+                        const genetics = calculateColorGenetics(parent1, parent2);
+                        const offspringColors = generateOffspringColors(parent1, parent2, genetics, inheritedMemory);
+                        
+                        const offspring = {
+                            id: wormId,
+                            head: { x: head.x, y: head.y },
+                            body: { x: body.x, y: body.y },
+                            tail: { x: tail.x, y: tail.y },
+                            life: materials[INCHWORM].life,
+                            memory: inheritedMemory, // Inherited memory from parents
+                            currentGoal: null,
+                            lastHeadPosition: null,
+                            colors: offspringColors // Individual genetic colors based on memory
+                        };
+                        
+                        wormList.push(offspring);
+                        
+                        // Place worm pixels
+                        grid[head.y][head.x] = INCHWORM_HEAD;
+                        grid[body.y][body.x] = INCHWORM_BODY;
+                        grid[tail.y][tail.x] = INCHWORM;
+                        
+                        // Clear color cache for genetic colors to show
+                        clearColorCache(head.x, head.y);
+                        clearColorCache(body.x, body.y);
+                        clearColorCache(tail.x, tail.y);
+                        
+                        lifeGrid[head.y][head.x] = offspring.life;
+                        lifeGrid[body.y][body.x] = offspring.life;
+                        lifeGrid[tail.y][tail.x] = offspring.life;
+                        
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function inheritMemoryFromParents(parent1, parent2) {
+            // Get recent memories from each parent (both positive and negative for color inheritance)
+            const parent1Recent = parent1.memory
+                .slice(-10) // Last 10 memories
+                .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)) // Sort by memory strength
+                .slice(0, 8); // Top 8 strongest memories
+                
+            const parent2Recent = parent2.memory
+                .slice(-10) // Last 10 memories  
+                .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)) // Sort by memory strength
+                .slice(0, 8); // Top 8 strongest memories
+            
+            // Interleave memories from both parents
+            const inheritedMemory = [];
+            const maxLength = Math.max(parent1Recent.length, parent2Recent.length);
+            
+            for (let i = 0; i < maxLength && inheritedMemory.length < 16; i++) {
+                if (i < parent1Recent.length) {
+                    inheritedMemory.push(mutateMemory(parent1Recent[i]));
+                }
+                if (i < parent2Recent.length && inheritedMemory.length < 16) {
+                    inheritedMemory.push(mutateMemory(parent2Recent[i]));
+                }
+            }
+            
+            return inheritedMemory;
+        }
+        
+        function mutateMemory(memory) {
+            // Create a slightly mutated copy of the memory
+            const mutated = {
+                relativeElevation: memory.relativeElevation,
+                localTreeDensity: memory.localTreeDensity,
+                localPixelClass: memory.localPixelClass,
+                movement: { dx: memory.movement.dx, dy: memory.movement.dy },
+                weight: memory.weight,
+                key: memory.key,
+                kind: memory.kind
+            };
+            
+            // 20% chance to mutate weight slightly
+            if (Math.random() < 0.2) {
+                const mutation = Math.random() < 0.5 ? -1 : 1;
+                mutated.weight = Math.max(-5, Math.min(5, mutated.weight + mutation));
+                // Update key if weight changed significantly
+                mutated.key = `${mutated.relativeElevation},${mutated.localTreeDensity},${mutated.localPixelClass},${mutated.movement.dx},${mutated.movement.dy}`;
+            }
+            
+            return mutated;
+        }
+        
+        function checkWormBreeding() {
+            // Check every worm against every other worm for breeding opportunities
+            for (let i = 0; i < wormList.length; i++) {
+                for (let j = i + 1; j < wormList.length; j++) {
+                    const worm1 = wormList[i];
+                    const worm2 = wormList[j];
+                    
+                    // Check if worms are close enough to breed (any part within 2 pixels)
+                    if (areWormsClose(worm1, worm2)) {
+                        // Breeding conditions: both worms must be mature (lived at least 25 frames)
+                        const worm1Age = materials[INCHWORM].life - worm1.life;
+                        const worm2Age = materials[INCHWORM].life - worm2.life;
+                        
+                        // Simple breeding chance - just based on proximity and age
+                        let breedingChance = 0.08; // Base 8% chance
+                        
+                        if (worm1Age >= 25 && worm2Age >= 25 && Math.random() < breedingChance) {
+                            // Attempt to breed
+                            attemptWormBreeding(worm1, worm2);
+                        }
+                    }
+                }
+            }
+        }
+        
+        function areWormsClose(worm1, worm2) {
+            // Check if any part of worm1 is within 2 pixels of any part of worm2
+            const worm1Parts = [worm1.head, worm1.body, worm1.tail];
+            const worm2Parts = [worm2.head, worm2.body, worm2.tail];
+            
+            for (const part1 of worm1Parts) {
+                for (const part2 of worm2Parts) {
+                    const distance = Math.abs(part1.x - part2.x) + Math.abs(part1.y - part2.y);
+                    if (distance <= 2) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        function attemptWormBreeding(worm1, worm2) {
+            // Find breeding area - look for empty spaces near both worms
+            const breedingCandidates = [];
+            
+            // Check area around both worms for empty spaces with surface contact
+            const checkAreas = [
+                [worm1.head, worm1.body, worm1.tail],
+                [worm2.head, worm2.body, worm2.tail]
+            ];
+            
+            for (const wormParts of checkAreas) {
+                for (const part of wormParts) {
+                    // Check 3x3 area around each worm part
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            const x = part.x + dx;
+                            const y = part.y + dy;
+                            
+                            if (isValidPos(x, y) && grid[y][x] === EMPTY) {
+                                if (hasValidSurface(x, y)) {
+                                    breedingCandidates.push({ x, y });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Remove duplicates
+            const uniqueCandidates = breedingCandidates.filter((candidate, index, arr) => 
+                arr.findIndex(c => c.x === candidate.x && c.y === candidate.y) === index
+            );
+            
+            // Spawn new worm if enough space
+            if (uniqueCandidates.length >= 3) {
+                spawnOffspringWithInheritedMemory(uniqueCandidates, grid, inchwormLifeGrid, worm1, worm2);
+                
+                // Record breeding success in memory (reward recent moves that led to breeding)
+                recordBreedingSuccess(worm1);
+                recordBreedingSuccess(worm2);
+                
+                // Reduce life of parent worms (breeding cost)
+                worm1.life -= 15;
+                worm2.life -= 15;
+            } else {
+                // Record breeding failure (not enough space)
+                recordBreedingFailure(worm1);
+                recordBreedingFailure(worm2);
+            }
+        }
+        
+        function updateWorms() {
+            // Update worms every few frames for performance
+            if (treeUpdateCounter % 4 !== 0) return;
+            
+            // Check for breeding opportunities first
+            checkWormBreeding();
+            
+            for (let i = wormList.length - 1; i >= 0; i--) {
+                const worm = wormList[i];
+                
+                // Age the worm
+                worm.life--;
+                if (worm.life <= 0) {
+                    // Remove dead worm
+                    removeWorm(worm);
+                    wormList.splice(i, 1);
+                    continue;
+                }
+                
+                // Check if worm died (in water/lava or eaten)
+                if (!isWormAlive(worm)) {
+                    removeWorm(worm);
+                    wormList.splice(i, 1);
+                    continue;
+                }
+                
+                // Move the worm
+                moveWorm(worm);
+            }
+        }
+        
+        function isWormAlive(worm) {
+            // Check if all parts of the worm still exist and aren't in deadly materials
+            const headCell = grid[worm.head.y] && grid[worm.head.y][worm.head.x];
+            const bodyCell = grid[worm.body.y] && grid[worm.body.y][worm.body.x];
+            const tailCell = grid[worm.tail.y] && grid[worm.tail.y][worm.tail.x];
+            
+            return headCell === INCHWORM_HEAD && 
+                   bodyCell === INCHWORM_BODY && 
+                   tailCell === INCHWORM;
+        }
+        
+        function removeWorm(worm) {
+            // Convert dead worm pixels to acid
+            if (isValidPos(worm.head.x, worm.head.y) && grid[worm.head.y][worm.head.x] === INCHWORM_HEAD) {
+                grid[worm.head.y][worm.head.x] = ACID;
+                acidLifeGrid[worm.head.y][worm.head.x] = materials[ACID].life;
+                inchwormLifeGrid[worm.head.y][worm.head.x] = 0;
+            }
+            if (isValidPos(worm.body.x, worm.body.y) && grid[worm.body.y][worm.body.x] === INCHWORM_BODY) {
+                grid[worm.body.y][worm.body.x] = ACID;
+                acidLifeGrid[worm.body.y][worm.body.x] = materials[ACID].life;
+                inchwormLifeGrid[worm.body.y][worm.body.x] = 0;
+            }
+            if (isValidPos(worm.tail.x, worm.tail.y) && grid[worm.tail.y][worm.tail.x] === INCHWORM) {
+                grid[worm.tail.y][worm.tail.x] = ACID;
+                acidLifeGrid[worm.tail.y][worm.tail.x] = materials[ACID].life;
+                inchwormLifeGrid[worm.tail.y][worm.tail.x] = 0;
+            }
+        }
+        
+        function moveWorm(worm) {
+            // Set movement goal based on memory and environment
+            if (!worm.currentGoal) {
+                worm.currentGoal = generateMovementGoal(worm);
+            }
+            
+            // Periodically generate new goals to prevent getting stuck in loops
+            if (worm.memory.length > 0 && Math.random() < 0.05) {
+                const newGoal = generateMovementGoal(worm);
+                if (newGoal) {
+                    worm.currentGoal = newGoal;
+                }
+            }
+            
+            // Check if worm needs to fall (no solid support)
+            // A worm is unsupported if it has no solid ground contact (not just any surface)
+            let hasSolidGroundSupport = false;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const checkX = worm.head.x + dx;
+                    const checkY = worm.head.y + dy;
+                    
+                    if (isValidPos(checkX, checkY)) {
+                        const cell = grid[checkY][checkX];
+                        
+                        // Only count solid surfaces for support (not other worms)
+                        if (cell === SAND || cell === DIRT || cell === GLASS || 
+                            cell === TREE || cell === DEAD_TREE || cell === WATER) {
+                            // Skip surfaces above the worm (they don't provide support)
+                            if (checkY >= worm.head.y) {
+                                hasSolidGroundSupport = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (hasSolidGroundSupport) break;
+            }
+            
+            const isUnsupported = !hasSolidGroundSupport;
+            
+            const allMoves = [];
+            
+            // If unsupported, prioritize falling moves
+            if (isUnsupported) {
+                // Add falling options
+                const fallCandidates = [
+                    { x: worm.head.x, y: worm.head.y + 1 },     // Straight down
+                    { x: worm.head.x - 1, y: worm.head.y + 1 }, // Down-left
+                    { x: worm.head.x + 1, y: worm.head.y + 1 }  // Down-right
+                ];
+                
+                for (const candidate of fallCandidates) {
+                    if (isValidPos(candidate.x, candidate.y)) {
+                        const targetCell = grid[candidate.y][candidate.x];
+                        const isOwnBodyPart = (candidate.x === worm.body.x && candidate.y === worm.body.y) || 
+                                             (candidate.x === worm.tail.x && candidate.y === worm.tail.y);
+                        
+                        if (!isOwnBodyPart && (targetCell === EMPTY || targetCell === TREE || targetCell === WATER)) {
+                            allMoves.push({ 
+                                x: candidate.x, 
+                                y: candidate.y, 
+                                dx: candidate.x - worm.head.x,
+                                dy: candidate.y - worm.head.y,
+                                eatsTree: targetCell === TREE,
+                                floatsOnWater: targetCell === WATER,
+                                isFalling: true
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // Add regular surface-following moves
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    
+                    const newX = worm.head.x + dx;
+                    const newY = worm.head.y + dy;
+                    
+                    if (isValidPos(newX, newY)) {
+                        const targetCell = grid[newY][newX];
+                        
+                        // Skip own body parts
+                        const isOwnBodyPart = (newX === worm.body.x && newY === worm.body.y) || 
+                                             (newX === worm.tail.x && newY === worm.tail.y);
+                        
+                        if (!isOwnBodyPart && (targetCell === EMPTY || targetCell === TREE || targetCell === WATER || 
+                                                        (targetCell === DIRT && newY < worm.head.y))) { // Allow dirt swapping for upward movement
+                            // For non-falling moves, require surface contact (worms can't fly)
+                            if (hasValidSurface(newX, newY, { includeWorms: false })) {
+                                // Also check that the worm itself will have support after moving
+                                // A worm needs at least one solid contact point to crawl
+                                let hasSolidSupport = false;
+                                
+                                // Check for solid ground/surfaces around the new position
+                                for (let sdy = -1; sdy <= 1; sdy++) {
+                                    for (let sdx = -1; sdx <= 1; sdx++) {
+                                        if (sdx === 0 && sdy === 0) continue;
+                                        
+                                        const supportX = newX + sdx;
+                                        const supportY = newY + sdy;
+                                        
+                                        if (isValidPos(supportX, supportY)) {
+                                            const supportCell = grid[supportY][supportX];
+                                            
+                                            // Count solid surfaces only (no worms as structural support)
+                                            if (supportCell === SAND || supportCell === DIRT || supportCell === GLASS || 
+                                                supportCell === TREE || supportCell === DEAD_TREE || supportCell === WATER) {
+                                                hasSolidSupport = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (hasSolidSupport) break;
+                                }
+                                
+                                // Only allow crawling moves with proper support
+                                if (hasSolidSupport) {
+                                    allMoves.push({ 
+                                        x: newX, 
+                                        y: newY, 
+                                        dx: dx,
+                                        dy: dy,
+                                        eatsTree: targetCell === TREE,
+                                        floatsOnWater: targetCell === WATER,
+                                        displacesDirt: targetCell === DIRT,
+                                        isFalling: false
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Check if worm is in same position as last turn (stuck)
+            const currentHeadPos = `${worm.head.x},${worm.head.y}`;
+            const wasStuck = worm.lastHeadPosition === currentHeadPos;
+            
+            // Worms ALWAYS move when any options exist - never stop!
+            if (allMoves.length > 0) {
+                selectedMove = selectBestMove(worm, allMoves);
+                
+                // Force selection if no move was chosen (shouldn't happen with good logic)
+                if (!selectedMove) {
+                    selectedMove = allMoves[Math.floor(Math.random() * allMoves.length)];
+                }
+            } else {
+                // No moves available - use emergency maneuvers
+                handleStuckWorm(worm, wasStuck);
+                return;
+            }
+            
+            // Execute the selected move
+            if (selectedMove) {
+                executeWormMove(worm, selectedMove);
+            }
+        }
+        
+        
+        
+        
+        function findNearestFood(worm) {
+            // Look for trees (food) in a 5x5 area around the worm
+            const searchRadius = 5;
+            let nearestFood = null;
+            let minDistance = Infinity;
+            
+            for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+                for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    
+                    const checkX = worm.head.x + dx;
+                    const checkY = worm.head.y + dy;
+                    
+                    if (isValidPos(checkX, checkY) && grid[checkY][checkX] === TREE) {
+                        const distance = Math.abs(dx) + Math.abs(dy);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            nearestFood = { dx: Math.sign(dx), dy: Math.sign(dy) };
+                        }
+                    }
+                }
+            }
+            
+            return nearestFood;
+        }
+        
+        function findTreeCluster(worm) {
+            // Find the densest tree cluster within range
+            const searchRadius = 7;
+            let bestCluster = null;
+            let maxDensity = 0;
+            
+            for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+                for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    
+                    const centerX = worm.head.x + dx;
+                    const centerY = worm.head.y + dy;
+                    
+                    if (isValidPos(centerX, centerY)) {
+                        // Count trees in 3x3 area around this center point
+                        let treeCount = 0;
+                        for (let cy = -1; cy <= 1; cy++) {
+                            for (let cx = -1; cx <= 1; cx++) {
+                                const checkX = centerX + cx;
+                                const checkY = centerY + cy;
+                                if (isValidPos(checkX, checkY) && grid[checkY][checkX] === TREE) {
+                                    treeCount++;
+                                }
+                            }
+                        }
+                        
+                        // Calculate density score (trees per distance)
+                        const distance = Math.abs(dx) + Math.abs(dy);
+                        const density = treeCount / Math.max(1, distance);
+                        
+                        if (density > maxDensity && treeCount >= 2) { // Need at least 2 trees to be a cluster
+                            maxDensity = density;
+                            bestCluster = { 
+                                dx: Math.sign(dx), 
+                                dy: Math.sign(dy),
+                                density: density,
+                                treeCount: treeCount
+                            };
+                        }
+                    }
+                }
+            }
+            
+            return bestCluster;
+        }
+        
+        function generateMovementGoal(worm) {
+            // Priority: Tree clusters → Nearest food → Exploration
+            
+            // First priority: Move toward dense tree clusters
+            const treeCluster = findTreeCluster(worm);
+            if (treeCluster) {
+                return { 
+                    dx: treeCluster.dx, 
+                    dy: treeCluster.dy,
+                    isClusterSeeking: true,
+                    clusterDensity: treeCluster.density
+                };
+            }
+            
+            // Second priority: Move toward nearest single tree
+            const foodDirection = findNearestFood(worm);
+            if (foodDirection) {
+                return { dx: foodDirection.dx, dy: foodDirection.dy };
+            }
+            
+            // If no food nearby, create exploration goal based on memory
+            if (worm.memory.length > 3) {
+                const recentMoves = worm.memory.slice(-3);
+                const avgDx = recentMoves.reduce((sum, m) => sum + m.movement.dx, 0) / recentMoves.length;
+                const avgDy = recentMoves.reduce((sum, m) => sum + m.movement.dy, 0) / recentMoves.length;
+                
+                // Continue in similar direction
+                return {
+                    dx: Math.sign(avgDx) || (Math.random() < 0.5 ? -1 : 1),
+                    dy: Math.sign(avgDy) || (Math.random() < 0.5 ? -1 : 1)
+                };
+            }
+            
+            // Random exploration direction
+            return {
+                dx: Math.random() < 0.5 ? -1 : 1,
+                dy: Math.random() < 0.5 ? -1 : 1
+            };
+        }
+        
+        
+        function selectBestMove(worm, availableMoves) {
+            // Rebalanced priority system: Tree clusters → Food → Surface contact → Falling
+            
+            if (availableMoves.length === 0) {
+                return null;
+            }
+            
+            // First priority: Food moves (eating is always top priority)
+            const foodMoves = availableMoves.filter(move => move.eatsTree);
+            if (foodMoves.length > 0) {
+                return selectMemoryWeightedMove(worm, foodMoves);
+            }
+            
+            // Second priority: Moves toward other worms (social attraction)
+            const nearbyWorms = findNearbyWorms(worm.head.x, worm.head.y, 8);
+            if (nearbyWorms.length > 0) {
+                // Filter moves that go toward nearby worms
+                const wormAttractionMoves = availableMoves.filter(move => {
+                    const movePos = { x: move.x, y: move.y };
+                    return nearbyWorms.some(nearby => {
+                        const currentDist = Math.abs(worm.head.x - nearby.part.x) + Math.abs(worm.head.y - nearby.part.y);
+                        const newDist = Math.abs(movePos.x - nearby.part.x) + Math.abs(movePos.y - nearby.part.y);
+                        return newDist < currentDist; // Move gets closer to worm
+                    });
+                });
+                
+                if (wormAttractionMoves.length > 0) {
+                    return selectMemoryWeightedMove(worm, wormAttractionMoves);
+                }
+            }
+            
+            // Third priority: Moves toward tree clusters (but not falling)
+            const nonFallingMoves = availableMoves.filter(move => !move.isFalling);
+            if (nonFallingMoves.length > 0 && worm.currentGoal && worm.currentGoal.isClusterSeeking) {
+                // Filter moves that go toward the cluster
+                const clusterMoves = nonFallingMoves.filter(move => 
+                    Math.sign(move.dx) === Math.sign(worm.currentGoal.dx) || 
+                    Math.sign(move.dy) === Math.sign(worm.currentGoal.dy)
+                );
+                
+                if (clusterMoves.length > 0) {
+                    return selectMemoryWeightedMove(worm, clusterMoves);
+                }
+            }
+            
+            // Fourth priority: Any surface-contact moves (avoid falling if possible)
+            if (nonFallingMoves.length > 0) {
+                return selectMemoryWeightedMove(worm, nonFallingMoves);
+            }
+            
+            // Last resort: Falling moves (only when no surface contact possible)
+            const fallingMoves = availableMoves.filter(move => move.isFalling);
+            if (fallingMoves.length > 0) {
+                return selectMemoryWeightedMove(worm, fallingMoves);
+            }
+            
+            // Fallback
+            return selectMemoryWeightedMove(worm, availableMoves);
+        }
+        
+        function selectMemoryWeightedMove(worm, moves) {
+            // Use memory to weight move selection, with goal influence and surface following
+            if (moves.length === 0) {
+                return null;
+            }
+            
+            if (moves.length === 1) {
+                return moves[0];
+            }
+            
+            // Score moves based on memory, goals, and surface following
+            const scoredMoves = moves.map(move => {
+                let score = 1.0; // Base score
+                
+                // Instant chemistry bias: prefer favorable pixel environments
+                switch (sampleLocalPixelClass(move.x, move.y)) {
+                    case  2: score += 0.6; break; // rich in trees / dirt
+                    case  1: score += 0.3; break; // water present
+                    case -2: score -= 0.8; break; // acid / fire / lava nearby
+                }
+                
+                // Surface following bonus: prefer moves that maintain contact with surfaces
+                if (!move.isFalling) {
+                    const surfaceQuality = calculateSurfaceContactQuality(move.x, move.y, worm);
+                    score += surfaceQuality * 0.3; // Surface contact bonus
+                }
+                
+                // Social attraction bonus: prefer moves toward nearby worms
+                const nearbyWorms = findNearbyWorms(move.x, move.y, 6);
+                if (nearbyWorms.length > 0) {
+                    // Stronger attraction to closer worms
+                    const attractionBonus = nearbyWorms.reduce((total, nearby) => {
+                        const attractionStrength = Math.max(0, 1 - (nearby.distance / 6)); // Stronger when closer
+                        return total + attractionStrength * 0.4; // Social attraction bonus
+                    }, 0);
+                    score += attractionBonus;
+                }
+                
+                // Memory scoring: environmental context + movement matches
+                if (worm.memory.length > 0) {
+                    const currentElevation = calculateRelativeElevation(worm.head.x, worm.head.y);
+                    const currentTreeDensity = calculateLocalTreeDensity(worm.head.x, worm.head.y);
+                    const localPixelClass = sampleLocalPixelClass(worm.head.x, worm.head.y);
+                    const moveKey = `${currentElevation},${currentTreeDensity},${localPixelClass},${move.dx},${move.dy}`;
+                    
+                    // Exact environmental context + movement match
+                    const exactMemory = worm.memory.find(mem => mem.key === moveKey);
+                    if (exactMemory) {
+                        score += exactMemory.weight;
+                    }
+                    
+                    // Similar environmental contexts (fuzzy matching)
+                    const similarContexts = worm.memory.filter(mem => 
+                        Math.abs(mem.relativeElevation - currentElevation) <= 1 &&
+                        Math.abs(mem.localTreeDensity - currentTreeDensity) <= 2 &&
+                        Math.abs(mem.localPixelClass - localPixelClass) <= 1 &&
+                        mem.movement.dx === move.dx && mem.movement.dy === move.dy
+                    );
+                    
+                    if (similarContexts.length > 0) {
+                        const avgWeight = similarContexts.reduce((sum, mem) => sum + mem.weight, 0) / similarContexts.length;
+                        score += avgWeight * 0.3; // Contextual similarity bonus
+                    }
+                }
+                
+                // Goal alignment bonus (enhanced for cluster seeking)
+                if (worm.currentGoal) {
+                    if (move.dx === worm.currentGoal.dx && move.dy === worm.currentGoal.dy) {
+                        if (worm.currentGoal.isClusterSeeking) {
+                            score += 1.0; // Strong bonus for exact cluster direction
+                        } else {
+                            score += 0.5; // Normal exact goal match
+                        }
+                    } else if (Math.sign(move.dx) === Math.sign(worm.currentGoal.dx) || 
+                              Math.sign(move.dy) === Math.sign(worm.currentGoal.dy)) {
+                        if (worm.currentGoal.isClusterSeeking) {
+                            score += 0.5; // Bonus for similar cluster direction
+                        } else {
+                            score += 0.2; // Normal similar direction
+                        }
+                    }
+                }
+                
+                // Extra bonus for moves toward tree clusters
+                if (worm.currentGoal && worm.currentGoal.isClusterSeeking && !move.isFalling) {
+                    score += worm.currentGoal.clusterDensity || 0.3; // Density-based bonus
+                }
+                
+                return { move, score };
+            });
+            
+            // Ensure all scores are positive
+            const minScore = Math.min(...scoredMoves.map(item => item.score));
+            if (minScore <= 0) {
+                scoredMoves.forEach(item => item.score += Math.abs(minScore) + 0.1);
+            }
+            
+            // Weighted random selection
+            const totalScore = scoredMoves.reduce((sum, item) => sum + item.score, 0);
+            let random = Math.random() * totalScore;
+            
+            for (const item of scoredMoves) {
+                random -= item.score;
+                if (random <= 0) {
+                    return item.move;
+                }
+            }
+            
+            // Fallback
+            return moves[Math.floor(Math.random() * moves.length)];
+        }
+        
+        function calculateSurfaceContactQuality(x, y, worm) {
+            // Calculate how good the surface contact is at this position
+            let quality = 0;
+            let contactCount = 0;
+            
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    
+                    const sx = x + dx;
+                    const sy = y + dy;
+                    
+                    if (isValidPos(sx, sy)) {
+                        const cell = grid[sy][sx];
+                        
+                        // Check for solid surfaces
+                        if (cell === SAND || cell === DIRT || cell === GLASS || 
+                            cell === TREE || cell === DEAD_TREE || cell === WATER) {
+                            contactCount++;
+                            
+                            // Prefer contact below and to sides (more stable)
+                            if (sy >= y) quality += 1.0; // Below or same level
+                            else quality += 0.5; // Above
+                        }
+                        
+                    }
+                }
+            }
+            
+            // Normalize quality by contact count (prefer multiple contact points)
+            return contactCount > 0 ? quality / Math.max(1, contactCount) : 0;
+        }
+        
+        function findNearbyWorms(x, y, radius = 5) {
+            // Find other worms within the specified radius
+            const nearbyWorms = [];
+            
+            for (const otherWorm of wormList) {
+                // Check distance to all parts of the other worm
+                const parts = [otherWorm.head, otherWorm.body, otherWorm.tail];
+                for (const part of parts) {
+                    const distance = Math.abs(part.x - x) + Math.abs(part.y - y); // Manhattan distance
+                    if (distance <= radius) {
+                        nearbyWorms.push({
+                            worm: otherWorm,
+                            distance: distance,
+                            part: part
+                        });
+                        break; // Only count each worm once
+                    }
+                }
+            }
+            
+            return nearbyWorms;
+        }
+        
+        function executeWormMove(worm, selectedMove) {
+            // Record memory
+            const successType = selectedMove.eatsTree ? 'tree' : null;
+            recordMovementMemory(worm, selectedMove, successType);
+            
+            // Store old positions
+            const oldTail = { ...worm.tail };
+            const oldBody = { ...worm.body };
+            const oldHead = { ...worm.head };
+            
+            // Clear old positions from grid
+            grid[oldTail.y][oldTail.x] = EMPTY;
+            grid[oldBody.y][oldBody.x] = EMPTY;
+            grid[oldHead.y][oldHead.x] = EMPTY;
+            inchwormLifeGrid[oldTail.y][oldTail.x] = 0;
+            inchwormLifeGrid[oldBody.y][oldBody.x] = 0;
+            inchwormLifeGrid[oldHead.y][oldHead.x] = 0;
+            
+            // Clear color cache from old positions
+            clearColorCache(oldTail.x, oldTail.y);
+            clearColorCache(oldBody.x, oldBody.y);
+            clearColorCache(oldHead.x, oldHead.y);
+            
+            // Move worm segments based on movement type
+            if (selectedMove.isFalling) {
+                // Falling: head moves first, body follows, maintaining orientation
+                worm.head = selectedMove;
+                worm.body = oldHead;
+                worm.tail = oldBody;
+            } else {
+                // Crawling: normal movement (tail -> body -> head -> new position)
+                worm.tail = oldBody;
+                worm.body = oldHead;
+                worm.head = selectedMove;
+            }
+            
+            // Handle dirt swapping for upward movement
+            if (grid[worm.head.y][worm.head.x] === DIRT) {
+                // Swap dirt down to worm's old head position
+                grid[oldHead.y][oldHead.x] = DIRT;
+                grid[worm.head.y][worm.head.x] = EMPTY; // Clear dirt from new head position
+            }
+            
+            // Place worm in new positions
+            grid[worm.tail.y][worm.tail.x] = INCHWORM;
+            grid[worm.body.y][worm.body.x] = INCHWORM_BODY;
+            grid[worm.head.y][worm.head.x] = INCHWORM_HEAD;
+            
+            // Clear color cache for new positions to show genetic colors
+            clearColorCache(worm.tail.x, worm.tail.y);
+            clearColorCache(worm.body.x, worm.body.y);
+            clearColorCache(worm.head.x, worm.head.y);
+            
+            inchwormLifeGrid[worm.tail.y][worm.tail.x] = worm.life;
+            inchwormLifeGrid[worm.body.y][worm.body.x] = worm.life;
+            inchwormLifeGrid[worm.head.y][worm.head.x] = worm.life;
+            
+            // Handle food consumption
+            if (selectedMove.eatsTree) {
+                worm.life += 1;
+                worm.life = Math.min(worm.life, materials[INCHWORM].life * 1.2);
+            }
+            
+            // Update position tracking
+            worm.lastHeadPosition = `${worm.head.x},${worm.head.y}`;
+        }
+        
+        function handleStuckWorm(worm, wasStuck) {
+            // Simplified emergency movement for stuck worms
+            if (!wasStuck) {
+                // First time stuck - reverse direction by swapping head and tail
+                const oldHead = { ...worm.head };
+                const oldTail = { ...worm.tail };
+                
+                worm.head = oldTail;
+                worm.tail = oldHead;
+                
+                // Update grid positions
+                grid[worm.head.y][worm.head.x] = INCHWORM_HEAD;
+                grid[worm.tail.y][worm.tail.x] = INCHWORM;
+            } else {
+                // Still stuck - cycle body positions as last resort
+                const oldTail = { ...worm.tail };
+                const oldBody = { ...worm.body };
+                const oldHead = { ...worm.head };
+                
+                worm.head = oldBody;
+                worm.body = oldTail;
+                worm.tail = oldHead;
+                
+                // Update grid positions
+                grid[worm.head.y][worm.head.x] = INCHWORM_HEAD;
+                grid[worm.body.y][worm.body.x] = INCHWORM_BODY;
+                grid[worm.tail.y][worm.tail.x] = INCHWORM;
+            }
+            
+            worm.lastHeadPosition = `${worm.head.x},${worm.head.y}`;
+        }
+        
+        
+        function recordBreedingSuccess(worm) {
+            // Reward recent movements that led to successful breeding
+            const recentMoves = worm.memory.slice(-3); // Last 3 moves led to breeding
+            for (const memory of recentMoves) {
+                memory.weight += 2; // Breeding success bonus
+                memory.weight = Math.min(5, memory.weight); // Cap at 5
+            }
+        }
+        
+        function recordBreedingFailure(worm) {
+            // Penalize recent movements that led to failed breeding attempt
+            const recentMoves = worm.memory.slice(-2); // Last 2 moves led to failed breeding
+            for (const memory of recentMoves) {
+                memory.weight -= 1; // Breeding failure penalty
+                memory.weight = Math.max(-5, memory.weight); // Cap at -5
+            }
+        }
+        
+        function calculateRelativeElevation(x, y) {
+            // Calculate relative elevation: how many solid pixels are below vs above
+            let below = 0, above = 0;
+            
+            for (let dy = 1; dy <= 3; dy++) { // Check 3 pixels below
+                if (isValidPos(x, y + dy)) {
+                    const cell = grid[y + dy][x];
+                    if (cell === SAND || cell === DIRT || cell === GLASS || 
+                        cell === TREE || cell === DEAD_TREE) {
+                        below++;
+                    }
+                }
+            }
+            
+            for (let dy = 1; dy <= 3; dy++) { // Check 3 pixels above
+                if (isValidPos(x, y - dy)) {
+                    const cell = grid[y - dy][x];
+                    if (cell === SAND || cell === DIRT || cell === GLASS || 
+                        cell === TREE || cell === DEAD_TREE) {
+                        above++;
+                    }
+                }
+            }
+            
+            // Return relative elevation: -3 (deep valley) to +3 (high peak)
+            return below - above;
+        }
+        
+        function calculateLocalTreeDensity(x, y) {
+            // Count trees in 5x5 area around position
+            let treeCount = 0;
+            const radius = 2;
+            
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    if (isValidPos(x + dx, y + dy) && grid[y + dy][x + dx] === TREE) {
+                        treeCount++;
+                    }
+                }
+            }
+            
+            // Return density 0-25 (max trees in 5x5)
+            return treeCount;
+        }
+        
+        function sampleLocalPixelClass(x, y) {
+            // Scan the Moore neighbourhood around (x,y) for chemical preference
+            let score = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx, ny = y + dy;
+                    if (!isValidPos(nx, ny)) continue;
+                    const c = grid[ny][nx];
+
+                    if (c === TREE || c === DIRT || c === DEAD_TREE) score += 2;
+                    else if (c === WATER)                                score += 1;
+                    else if (c === ACID || c === FIRE || c === LAVA)     score -= 2;
+                    // EMPTY / STEAM etc count as 0
+                }
+            }
+            // Clamp to -4…4 so the key stays compact
+            return Math.max(-4, Math.min(4, score));
+        }
+        
+        function recordMovementMemory(worm, move, success = null) {
+            // Record this movement in memory with environmental context instead of position
+            let weight = 0;
+            
+            // Determine success/failure weight
+            if (success === 'tree') {
+                weight = 1; // Found food
+            } else if (success === 'breeding') {
+                weight = 2; // Successful breeding (higher reward)
+            } else if (success === 'failed') {
+                weight = -1; // No food found when expected, or failed to breed
+            }
+            // success === null means neutral move (no special outcome expected)
+            
+            // Calculate environmental features for generalizable memory
+            const relativeElevation = calculateRelativeElevation(worm.head.x, worm.head.y);
+            const localTreeDensity = calculateLocalTreeDensity(worm.head.x, worm.head.y);
+            const localPixelClass = sampleLocalPixelClass(worm.head.x, worm.head.y);
+            
+            // Create memory key from environmental features instead of position
+            const memoryKey = `${relativeElevation},${localTreeDensity},${localPixelClass},${move.dx},${move.dy}`;
+            
+            const memoryEntry = {
+                relativeElevation: relativeElevation,
+                localTreeDensity: localTreeDensity,
+                localPixelClass: localPixelClass,
+                movement: { dx: move.dx, dy: move.dy },
+                weight: weight,
+                key: memoryKey,
+                kind: success === 'tree' ? 'food'
+                    : success === 'breeding' ? 'breed'
+                    : 'neutral'
+            };
+            
+            // Check if we already have memory for this environmental context+movement combo
+            const existingIndex = worm.memory.findIndex(mem => mem.key === memoryKey);
+            
+            if (existingIndex !== -1) {
+                // Update existing memory weight (accumulate experience)
+                worm.memory[existingIndex].weight += weight;
+                // Cap weights at reasonable bounds
+                worm.memory[existingIndex].weight = Math.max(-5, Math.min(5, worm.memory[existingIndex].weight));
+            } else {
+                // Add new memory entry
+                worm.memory.push(memoryEntry);
+            }
+            
+            // Limit memory size to prevent unlimited growth (keep last 32 memories)
+            if (worm.memory.length > 32) {
+                worm.memory.shift(); // Remove oldest memory
+            }
+        }
+        
+        function hasValidSurface(x, y, options = {}) {
+            // Unified surface validation function
+            // options: { includeWorms: boolean, excludeOwnBody: worm, supportOnly: boolean }
+            const { includeWorms = false, excludeOwnBody = null, supportOnly = false } = options;
+            
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const sx = x + dx;
+                    const sy = y + dy;
+                    if (isValidPos(sx, sy)) {
+                        const cell = grid[sy][sx];
+                        
+                        // Check solid surfaces
+                        if (cell === SAND || cell === DIRT || cell === GLASS || 
+                            cell === TREE || cell === DEAD_TREE || cell === WATER) {
+                            // For support checks, only count surfaces below or adjacent
+                            if (supportOnly && sy < y) continue; // Skip surfaces above
+                            return true;
+                        }
+                        
+                        // Check worm surfaces if requested
+                        if (includeWorms && (cell === INCHWORM || cell === INCHWORM_HEAD || cell === INCHWORM_BODY)) {
+                            // If excluding own body, check if this is the worm's own body part
+                            if (excludeOwnBody) {
+                                const isOwnBodyPart = (sx === excludeOwnBody.head.x && sy === excludeOwnBody.head.y) ||
+                                                     (sx === excludeOwnBody.body.x && sy === excludeOwnBody.body.y) ||
+                                                     (sx === excludeOwnBody.tail.x && sy === excludeOwnBody.tail.y);
+                                if (!isOwnBodyPart) {
+                                    if (supportOnly && sy < y) continue; // Skip surfaces above
+                                    return true;
+                                }
+                            } else {
+                                if (supportOnly && sy < y) continue; // Skip surfaces above
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // Tree behavior functions
+        function findNearestWater(x, y, maxDistance = 15) {
+            let nearest = null;
+            let minDistance = Infinity;
+            
+            for (let checkY = Math.max(0, y - maxDistance); checkY < Math.min(GRID_HEIGHT, y + maxDistance + 1); checkY++) {
+                for (let checkX = Math.max(0, x - maxDistance); checkX < Math.min(GRID_WIDTH, x + maxDistance + 1); checkX++) {
+                    if (grid[checkY][checkX] === WATER) {
+                        // Use squared distance to avoid expensive sqrt calculation
+                        const distanceSquared = (checkX - x) * (checkX - x) + (checkY - y) * (checkY - y);
+                        if (distanceSquared < minDistance) {
+                            minDistance = distanceSquared;
+                            nearest = { x: checkX, y: checkY, distance: Math.sqrt(distanceSquared) };
+                        }
+                    }
+                }
+            }
+            
+            return nearest;
+        }
+        
+        function countNearbyTrees(x, y, radius = 3) {
+            let count = 0;
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    // Only count living trees, not dead trees
+                    if (isValidPos(nx, ny) && grid[ny][nx] === TREE) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+        
+        function countConnectedPixels(startX, startY, material, grid) {
+            // Use flood fill to count connected pixels of the same material
+            const visited = new Set();
+            const stack = [{ x: startX, y: startY }];
+            let count = 0;
+            
+            while (stack.length > 0) {
+                const { x, y } = stack.pop();
+                const key = `${x},${y}`;
+                
+                if (visited.has(key) || !isValidPos(x, y) || grid[y][x] !== material) {
+                    continue;
+                }
+                
+                visited.add(key);
+                count++;
+                
+                // Add adjacent cells to stack
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        stack.push({ x: x + dx, y: y + dy });
+                    }
+                }
+                
+                // Limit flood fill to prevent performance issues
+                if (count > 50) break;
+            }
+            
+            return count;
+        }
+        
+        function updateTreeDecomposition() {
+            // Process decomposition every frame
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    if (grid[y][x] === DEAD_TREE && treeDecompositionGrid[y][x] > 0) {
+                        treeDecompositionGrid[y][x]--;
+                        
+                        // Convert to dirt when decomposition is complete
+                        if (treeDecompositionGrid[y][x] <= 0) {
+                            grid[y][x] = DIRT;
+                        }
+                    }
+                }
+            }
+        }
+        
+        function updateTreeBehavior() {
+            // Only update trees every 30 frames for performance
+            if (treeUpdateCounter % 30 !== 0) return;
+            
+            const treesToProcess = [];
+            
+            // Find all tree positions
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    if (grid[y][x] === TREE) {
+                        treesToProcess.push({ x, y });
+                    }
+                }
+            }
+            
+            // Process each tree
+            for (const tree of treesToProcess) {
+                const waterInfo = findNearestWater(tree.x, tree.y);
+                const nearbyTreeCount = countNearbyTrees(tree.x, tree.y);
+                
+                // Trees die only if isolated (1 neighbor) AND network lacks water access
+                let adjacentTreeCount = 0;
+                const adjacentTrees = [];
+                
+                // Count directly adjacent trees (1-pixel radius)
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = tree.x + dx;
+                        const ny = tree.y + dy;
+                        if (isValidPos(nx, ny) && grid[ny][nx] === TREE) {
+                            adjacentTreeCount++;
+                            adjacentTrees.push({ x: nx, y: ny });
+                        }
+                    }
+                }
+                
+                // Consider death if tree is isolated (0 neighbors) or end of branch (1 neighbor)
+                if (adjacentTreeCount <= 1) {
+                    // Check if this tree or its network has water access
+                    let networkHasWater = false;
+                    
+                    // Check if this tree has water access
+                    if (waterInfo && waterInfo.distance <= 15) {
+                        networkHasWater = true;
+                    }
+                    
+                    // If has a neighbor, check if that neighbor has water access
+                    if (!networkHasWater && adjacentTrees.length > 0) {
+                        const neighbor = adjacentTrees[0];
+                        const neighborWater = findNearestWater(neighbor.x, neighbor.y);
+                        if (neighborWater && neighborWater.distance <= 15) {
+                            networkHasWater = true;
+                        }
+                    }
+                    
+                    // Death rates: isolated trees (0 neighbors) die faster than end branches (1 neighbor)
+                    const deathChance = adjacentTreeCount === 0 ? 0.08 : 0.03; // 8% for isolated, 3% for end branches
+                    
+                    // Only die if isolated/end branch AND no water access in local network
+                    if (!networkHasWater && Math.random() < deathChance) {
+                        grid[tree.y][tree.x] = DEAD_TREE;
+                        treeDecompositionGrid[tree.y][tree.x] = 180;
+                        continue;
+                    }
+                }
+                
+                // Determine growth behavior based on clustering
+                const isClustered = nearbyTreeCount >= 3;
+                const growthChance = isClustered ? 0.12 : 0.08; // Higher chance when clustered
+                
+                // Trees grow toward water or branch when clustered
+                if (waterInfo && waterInfo.distance <= 8 && Math.random() < growthChance) {
+                    const dx = waterInfo.x - tree.x;
+                    const dy = waterInfo.y - tree.y;
+                    
+                    // Normalize direction
+                    const dirX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+                    const dirY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+                    
+                    const candidates = [];
+                    
+                    if (isClustered) {
+                        // When clustered, prefer branching in multiple directions
+                        // Add perpendicular directions to main growth
+                        if (dirX !== 0) {
+                            candidates.push({ x: tree.x, y: tree.y - 1 }); // Up
+                            candidates.push({ x: tree.x, y: tree.y + 1 }); // Down
+                        }
+                        if (dirY !== 0) {
+                            candidates.push({ x: tree.x - 1, y: tree.y }); // Left
+                            candidates.push({ x: tree.x + 1, y: tree.y }); // Right
+                        }
+                        
+                        // Also add diagonal branching
+                        candidates.push({ x: tree.x + dirX, y: tree.y - 1 });
+                        candidates.push({ x: tree.x + dirX, y: tree.y + 1 });
+                        candidates.push({ x: tree.x - dirX, y: tree.y - 1 });
+                        candidates.push({ x: tree.x - dirX, y: tree.y + 1 });
+                        
+                        // Still include main direction but with lower priority
+                        if (dirX !== 0) candidates.push({ x: tree.x + dirX, y: tree.y });
+                        if (dirY !== 0) candidates.push({ x: tree.x, y: tree.y + dirY });
+                    } else {
+                        // When not clustered, prefer growing toward water
+                        if (dirX !== 0) candidates.push({ x: tree.x + dirX, y: tree.y });
+                        if (dirY !== 0) candidates.push({ x: tree.x, y: tree.y + dirY });
+                        
+                        // Add adjacent empty spaces as backup
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                candidates.push({ x: tree.x + dx, y: tree.y + dy });
+                            }
+                        }
+                    }
+                    
+                    // Shuffle candidates for randomness
+                    for (let i = candidates.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+                    }
+                    
+                    // Try to grow to candidate positions
+                    let grownCount = 0;
+                    const maxGrowth = isClustered ? (Math.random() < 0.3 ? 2 : 1) : 1; // Sometimes branch twice when clustered
+                    
+                    for (const candidate of candidates) {
+                        if (grownCount >= maxGrowth) break;
+                        
+                        if (isValidPos(candidate.x, candidate.y)) {
+                            const targetCell = grid[candidate.y][candidate.x];
+                            
+                            // Trees can grow into empty space or through dirt, but not through glass
+                            if ((targetCell === EMPTY || targetCell === DIRT) && targetCell !== GLASS) {
+                                // Check if this position isn't too crowded
+                                const nearbyAtCandidate = countNearbyTrees(candidate.x, candidate.y, 2);
+                                if (nearbyAtCandidate < 8) { // Prevent overcrowding (reduced from 6 to allow denser growth)
+                                    // Only check for glass adjacency, not tree adjacency
+                                    let hasAdjacentGlass = false;
+                                    for (let checkDy = -1; checkDy <= 1; checkDy++) {
+                                        for (let checkDx = -1; checkDx <= 1; checkDx++) {
+                                            const adjX = candidate.x + checkDx;
+                                            const adjY = candidate.y + checkDy;
+                                            if (isValidPos(adjX, adjY) && grid[adjY][adjX] === GLASS) {
+                                                hasAdjacentGlass = true;
+                                                break;
+                                            }
+                                        }
+                                        if (hasAdjacentGlass) break;
+                                    }
+                                    
+                                    if (!hasAdjacentGlass) {
+                                        grid[candidate.y][candidate.x] = TREE;
+                                        grownCount++;
+                                    }
+                                    
+                                    // If growing through dirt, increase growth chance slightly (nutrient bonus)
+                                    if (targetCell === DIRT && Math.random() < 0.2 && grownCount < maxGrowth) {
+                                        // Bonus growth chance when consuming dirt
+                                        continue; // Try to grow one more time
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        function updateSimulation() {
+            if (isPaused) return;
+            
+            // Continuous material placement while mouse is held down
+            if (isMouseDown && isValidPos(mouseX, mouseY)) {
+                // Add material every few frames for continuous flow
+                if (treeUpdateCounter % 1 === 0) { // Every 3 frames
+                    addMaterial(mouseX, mouseY, selectedMaterial, brushSize);
+                }
+            }
+            
+            // Process generators - add material continuously
+            generators.forEach(generator => {
+                if (treeUpdateCounter % 3 === 0) { // Every 3 frames for slower generation
+                    addMaterial(generator.x, generator.y, generator.material, generator.radius);
+                }
+            });
+            
+            // Increment tree update counter
+            treeUpdateCounter++;
+            
+            // Process tree growth (fractal growth) - DISABLED during grid processing
+            // This will be handled after the new grid is created
+            
+            // Process tree behavior (movement toward water, death)
+            updateTreeBehavior();
+            
+            // Process worm behavior
+            updateWorms();
+            
+            // Process tree decomposition
+            updateTreeDecomposition();
+            
+            // Get the alternate grid set and clear it for next frame
+            let newGrid, newFireLifeGrid, newSteamLifeGrid, newAcidLifeGrid, newLavaLifeGrid, newInchwormLifeGrid;
+            
+            if (currentGridSet === 'A') {
+                newGrid = gridB;
+                newFireLifeGrid = fireLifeGridB;
+                newSteamLifeGrid = steamLifeGridB;
+                newAcidLifeGrid = acidLifeGridB;
+                newLavaLifeGrid = lavaLifeGridB;
+                newInchwormLifeGrid = inchwormLifeGridB;
+            } else {
+                newGrid = gridA;
+                newFireLifeGrid = fireLifeGridA;
+                newSteamLifeGrid = steamLifeGridA;
+                newAcidLifeGrid = acidLifeGridA;
+                newLavaLifeGrid = lavaLifeGridA;
+                newInchwormLifeGrid = inchwormLifeGridA;
+            }
+            
+            // Clear the grids
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                newGrid[y].fill(EMPTY);
+                newFireLifeGrid[y].fill(0);
+                newSteamLifeGrid[y].fill(0);
+                newAcidLifeGrid[y].fill(0);
+                newLavaLifeGrid[y].fill(0);
+                newInchwormLifeGrid[y].fill(0);
+            }
+            
+            // Process from bottom to top, left to right
+            for (let y = GRID_HEIGHT - 1; y >= 0; y--) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    const cell = grid[y][x];
+                    
+                    if (cell === EMPTY) continue;
+                    
+                    // Try to move particle
+                    let destX = x, destY = y;
+                    
+                    // Only isolated tree pixels fall (not connected forest structures)
+                    if (cell === TREE && y < GRID_HEIGHT - 1) {
+                        // Count adjacent trees to determine if truly isolated
+                        let adjacentTreeCount = 0;
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && grid[ny][nx] === TREE) {
+                                    adjacentTreeCount++;
+                                }
+                            }
+                        }
+                        
+                        // Only isolated tree pixels (0 neighbors) fall
+                        if (adjacentTreeCount === 0 && grid[y + 1][x] === EMPTY && Math.random() < 0.5) {
+                            // Isolated tree pixel falls down
+                            destY = y + 1;
+                        }
+                        // Try diagonal fall for isolated trees
+                        else if (adjacentTreeCount === 0 && Math.random() < 0.3) {
+                            const leftDiag = x > 0 ? grid[y + 1][x - 1] : null;
+                            const rightDiag = x < GRID_WIDTH - 1 ? grid[y + 1][x + 1] : null;
+                            
+                            if (leftDiag === EMPTY && rightDiag === EMPTY) {
+                                const dir = Math.random() < 0.5 ? -1 : 1;
+                                destX = x + dir;
+                                destY = y + 1;
+                            } else if (leftDiag === EMPTY) {
+                                destX = x - 1;
+                                destY = y + 1;
+                            } else if (rightDiag === EMPTY) {
+                                destX = x + 1;
+                                destY = y + 1;
+                            }
+                        }
+                    }
+                    
+                    // Individual worm parts don't move on their own - handled by updateWorms()
+                    else if (cell === INCHWORM || cell === INCHWORM_HEAD || cell === INCHWORM_BODY) {
+                        // Worm parts are moved by the worm system, just copy them
+                        // Individual parts don't have independent physics
+                    }
+                    
+                    // Handle falling for falling materials
+                    else if (y < GRID_HEIGHT - 1 && (cell === SAND || cell === DIRT || cell === WATER || cell === ACID || cell === LAVA)) {
+                        // Water + dirt interaction
+                        if (cell === WATER && grid[y + 1][x] === DIRT && Math.random() < 0.02) {
+                            // Check if growth path is clear (no glass blocking upward growth)
+                            if (y > 0 && grid[y - 1][x] !== GLASS) {
+                                // Water hits dirt - both become tree
+                                newGrid[y + 1][x] = TREE;
+                                startTreeGrowth(x, y);
+                                continue; // Water is consumed
+                            }
+                        }
+                        
+                        // Check if can fall down (water falls faster by skipping multiple cells)
+                        if (cell === WATER && grid[y + 1][x] === EMPTY) {
+                            // Water tries to fall multiple cells at once
+                            let fallDistance = 1;
+                            while (y + fallDistance + 1 < GRID_HEIGHT && 
+                                   grid[y + fallDistance + 1][x] === EMPTY && 
+                                   fallDistance < 3) { // Max fall distance of 3
+                                fallDistance++;
+                            }
+                            destY = y + fallDistance;
+                        }
+                        else if (grid[y + 1][x] === EMPTY) {
+                            destY = y + 1;
+                        }
+                        // Sand and dirt sink through water (density-based)
+                        else if ((cell === SAND || cell === DIRT) && grid[y + 1][x] === WATER) {
+                            destY = y + 1;
+                        }
+                        // Try diagonal fall for all falling materials including water
+                        else if ((cell === SAND || cell === DIRT || cell === WATER || cell === LAVA || cell === ACID) && Math.random() < 0.7) {
+                            const leftDiag = x > 0 ? grid[y + 1][x - 1] : null;
+                            const rightDiag = x < GRID_WIDTH - 1 ? grid[y + 1][x + 1] : null;
+                            
+                            // Check what can fall diagonally
+                            const canFallLeft = leftDiag === EMPTY || 
+                                ((cell === SAND || cell === DIRT) && leftDiag === WATER);
+                            const canFallRight = rightDiag === EMPTY || 
+                                ((cell === SAND || cell === DIRT) && rightDiag === WATER);
+                            
+                            if (canFallLeft && canFallRight) {
+                                const dir = Math.random() < 0.5 ? -1 : 1;
+                                destX = x + dir;
+                                destY = y + 1;
+                            } else if (canFallLeft) {
+                                destX = x - 1;
+                                destY = y + 1;
+                            } else if (canFallRight) {
+                                destX = x + 1;
+                                destY = y + 1;
+                            }
+                        }
+                        // Water horizontal flow when blocked (faster spreading)
+                        else if (cell === WATER && Math.random() < 0.8) { // Increased from 0.4 to 0.8
+                            // Water spreads multiple cells horizontally
+                            const directions = [];
+                            if (x > 0 && grid[y][x - 1] === EMPTY) directions.push(-1);
+                            if (x < GRID_WIDTH - 1 && grid[y][x + 1] === EMPTY) directions.push(1);
+                            
+                            if (directions.length > 0) {
+                                const dir = directions[Math.floor(Math.random() * directions.length)];
+                                let spreadDistance = 1;
+                                
+                                // Try to spread multiple cells at once
+                                while (x + (dir * (spreadDistance + 1)) >= 0 && 
+                                       x + (dir * (spreadDistance + 1)) < GRID_WIDTH &&
+                                       grid[y][x + (dir * (spreadDistance + 1))] === EMPTY && 
+                                       spreadDistance < 2) { // Max spread distance of 2
+                                    spreadDistance++;
+                                }
+                                destX = x + (dir * spreadDistance);
+                            }
+                        }
+                        // Lava horizontal flow (slower than water)
+                        else if (cell === LAVA && Math.random() < 0.3) {
+                            if (x > 0 && grid[y][x - 1] === EMPTY && Math.random() < 0.5) {
+                                destX = x - 1;
+                            } else if (x < GRID_WIDTH - 1 && grid[y][x + 1] === EMPTY) {
+                                destX = x + 1;
+                            }
+                        }
+                        // Acid horizontal flow (original behavior)
+                        else if (cell === ACID && Math.random() < 0.4) {
+                            if (x > 0 && grid[y][x - 1] === EMPTY && Math.random() < 0.5) {
+                                destX = x - 1;
+                            } else if (x < GRID_WIDTH - 1 && grid[y][x + 1] === EMPTY) {
+                                destX = x + 1;
+                            }
+                        }
+                    }
+                    
+                    // Steam rises
+                    else if (cell === STEAM && y > 0 && Math.random() < 0.4) {
+                        if (grid[y - 1][x] === EMPTY) {
+                            destY = y - 1;
+                            
+                            // Steam also moves horizontally while rising if on glass surface
+                            // Check if standing on glass
+                            if (y < GRID_HEIGHT - 1 && grid[y + 1][x] === GLASS && Math.random() < 0.5) {
+                                // Try to move horizontally while rising
+                                const directions = [];
+                                if (x > 0 && grid[y - 1][x - 1] === EMPTY) directions.push(-1);
+                                if (x < GRID_WIDTH - 1 && grid[y - 1][x + 1] === EMPTY) directions.push(1);
+                                
+                                if (directions.length > 0) {
+                                    const dir = directions[Math.floor(Math.random() * directions.length)];
+                                    destX = x + dir;
+                                }
+                            }
+                        }
+                        // Steam spreads sideways if can't rise
+                        else if (Math.random() < 0.3) {
+                            if (x > 0 && grid[y][x - 1] === EMPTY && Math.random() < 0.5) {
+                                destX = x - 1;
+                            } else if (x < GRID_WIDTH - 1 && grid[y][x + 1] === EMPTY) {
+                                destX = x + 1;
+                            }
+                        }
+                    }
+                    
+                    // Fire rises slightly
+                    else if (cell === FIRE && y > 0 && Math.random() < 0.1) {
+                        if (grid[y - 1][x] === EMPTY) {
+                            destY = y - 1;
+                        }
+                    }
+                    
+                    // Place particle in destination
+                    const destContent = newGrid[destY][destX];
+                    
+                    // Check if can displace what's at destination
+                    const canDisplace = destContent === EMPTY || 
+                        ((cell === SAND || cell === DIRT) && destContent === WATER);
+                    
+                    if (canDisplace) {
+                        newGrid[destY][destX] = cell;
+                        
+                        // If displacing water, place it at original position
+                        if (destContent === WATER && newGrid[y][x] === EMPTY) {
+                            newGrid[y][x] = WATER;
+                        }
+                        
+                        // Copy life values
+                        if (cell === FIRE) {
+                            const newLife = Math.max(0, fireLifeGrid[y][x] - 1);
+                            if (newLife > 0) {
+                                newFireLifeGrid[destY][destX] = newLife;
+                            } else {
+                                newGrid[destY][destX] = EMPTY; // Fire dies
+                            }
+                        } else if (cell === STEAM) {
+                            const newLife = Math.max(0, steamLifeGrid[y][x] - 1);
+                            if (newLife > 0) {
+                                newSteamLifeGrid[destY][destX] = newLife;
+                            } else {
+                                newGrid[destY][destX] = EMPTY; // Steam dissipates
+                            }
+                        } else if (cell === ACID) {
+                            const newLife = Math.max(0, acidLifeGrid[y][x] - 1);
+                            if (newLife > 0) {
+                                newAcidLifeGrid[destY][destX] = newLife;
+                            } else {
+                                newGrid[destY][destX] = EMPTY; // Acid evaporates
+                            }
+                        } else if (cell === INCHWORM || cell === INCHWORM_HEAD || cell === INCHWORM_BODY) {
+                            // Worm parts don't age individually - handled by worm system
+                            newInchwormLifeGrid[destY][destX] = inchwormLifeGrid[y][x];
+                        }
+                    } else {
+                        // Can't displace, try to place in original position
+                        if (newGrid[y][x] === EMPTY) {
+                            newGrid[y][x] = cell;
+                            // Copy life values to original position
+                            if (cell === FIRE) newFireLifeGrid[y][x] = fireLifeGrid[y][x];
+                            if (cell === STEAM) newSteamLifeGrid[y][x] = steamLifeGrid[y][x];
+                            if (cell === ACID) newAcidLifeGrid[y][x] = acidLifeGrid[y][x];
+                            if (cell === INCHWORM || cell === INCHWORM_HEAD || cell === INCHWORM_BODY) {
+                                newInchwormLifeGrid[y][x] = inchwormLifeGrid[y][x];
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Second pass: Handle interactions and transformations
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    const cell = newGrid[y][x];
+                    
+                    // Fire interactions
+                    if (cell === FIRE) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny)) {
+                                    const neighbor = newGrid[ny][nx];
+                                    
+                                    // Fire spreads to flammable materials (trees and dead trees)
+                                    if (materials[neighbor]?.flammable && Math.random() < 0.05) {
+                                        newGrid[ny][nx] = FIRE;
+                                        newFireLifeGrid[ny][nx] = materials[FIRE].life;
+                                        // Clear decomposition timer if burning dead tree
+                                        if (neighbor === DEAD_TREE) {
+                                            treeDecompositionGrid[ny][nx] = 0;
+                                        }
+                                        
+                                        // Create steam when plants burn (moisture release)
+                                        if (neighbor === TREE || neighbor === DEAD_TREE) {
+                                            // Try to place steam in nearby empty spaces
+                                            let steamCreated = false;
+                                            for (let steamDy = -1; steamDy <= 1 && !steamCreated; steamDy++) {
+                                                for (let steamDx = -1; steamDx <= 1 && !steamCreated; steamDx++) {
+                                                    const steamX = nx + steamDx;
+                                                    const steamY = ny + steamDy;
+                                                    if (isValidPos(steamX, steamY) && 
+                                                        newGrid[steamY][steamX] === EMPTY && 
+                                                        Math.random() < 0.3) {
+                                                        newGrid[steamY][steamX] = STEAM;
+                                                        newSteamLifeGrid[steamY][steamX] = materials[STEAM].life;
+                                                        steamCreated = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Fire turns sand to glass
+                                    else if (neighbor === SAND && Math.random() < 0.02) {
+                                        newGrid[ny][nx] = GLASS;
+                                    }
+                                    // Fire turns water to steam
+                                    else if (neighbor === WATER && Math.random() < 0.08) {
+                                        newGrid[ny][nx] = STEAM;
+                                        newSteamLifeGrid[ny][nx] = materials[STEAM].life;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Water interactions
+                    else if (cell === WATER) {
+                        // Water extinguishes fire
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && newGrid[ny][nx] === FIRE && Math.random() < 0.3) {
+                                    newGrid[ny][nx] = EMPTY;
+                                    newFireLifeGrid[ny][nx] = 0;
+                                }
+                            }
+                        }
+                        
+                        // Water neutralizes acid - acid becomes water
+                        //for (let dy = -1; dy <= 1; dy++) {
+                        //    for (let dx = -1; dx <= 1; dx++) {
+                        //        const nx = x + dx;
+                        //        const ny = y + dy;
+                        //        if (isValidPos(nx, ny) && newGrid[ny][nx] === ACID && Math.random() < 0.3) {
+                        //            // Acid becomes water when touching water
+                        //            newGrid[ny][nx] = WATER;
+                        //            newAcidLifeGrid[ny][nx] = 0;
+                        //        }
+                        //    }
+                        //}
+                        
+                        // Already handled in dirt interactions below
+                    }
+                    
+                    // Dirt interactions
+                    else if (cell === DIRT) {
+                        // Check for neighboring water to sprout trees
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue; // Skip self
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && newGrid[ny][nx] === WATER && Math.random() < 0.008) {
+                                    // Check if growth path is clear (no glass blocking upward growth)
+                                    const growthY = y - 1;
+                                    if (isValidPos(x, growthY) && newGrid[growthY][x] !== GLASS) {
+                                        // Convert dirt to tree and consume water
+                                        newGrid[y][x] = TREE;
+                                        newGrid[ny][nx] = EMPTY; // Consume the water
+                                        startTreeGrowth(x, growthY); // Start fractal growth upward
+                                        
+                                        break; // Only one tree per dirt particle
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    
+                    // Water, dirt, and tree interactions (inchworm spawning)
+                    else if (cell === WATER || cell === DIRT || cell === TREE) {
+                        // Check if water, dirt, and tree are all touching
+                        let hasWater = false, hasDirt = false, hasTree = false;
+                        
+                        // Check adjacent cells for the other two materials
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny)) {
+                                    const neighbor = newGrid[ny][nx];
+                                    if (neighbor === WATER) hasWater = true;
+                                    if (neighbor === DIRT) hasDirt = true;
+                                    if (neighbor === TREE) hasTree = true;
+                                }
+                            }
+                        }
+                        
+                        // Only proceed if all three materials are touching
+                        if (hasWater && hasDirt && hasTree) {
+                            // Count connected pixels of current material type using flood fill
+                            const connectedCount = countConnectedPixels(x, y, cell, newGrid);
+                            
+                            // Spawn inchworm if more than 4 connected pixels of this type
+                            if (connectedCount > 4 && Math.random() < 0.005) {
+                                // Find an empty adjacent spot to spawn inchworm
+                                const spawnCandidates = [];
+                                for (let dy = -1; dy <= 1; dy++) {
+                                    for (let dx = -1; dx <= 1; dx++) {
+                                        if (dx === 0 && dy === 0) continue;
+                                        const nx = x + dx;
+                                        const ny = y + dy;
+                                        if (isValidPos(nx, ny) && newGrid[ny][nx] === EMPTY) {
+                                            spawnCandidates.push({ x: nx, y: ny });
+                                        }
+                                    }
+                                }
+                                
+                                if (spawnCandidates.length >= 3) {
+                                    // Spawn a 3-pixel worm
+                                    spawnThreePixelWorm(spawnCandidates, newGrid, newInchwormLifeGrid);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Steam interactions
+                    else if (cell === STEAM) {
+                        // Steam condenses to water when touching glass
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && newGrid[ny][nx] === GLASS && Math.random() < 0.15) {
+                                    // Convert steam to water
+                                    newGrid[y][x] = WATER;
+                                    newSteamLifeGrid[y][x] = 0; // Clear steam life
+                                    break; // Only one conversion per steam particle
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Acid interactions
+                    else if (cell === ACID) {
+                        // Acid corrodes neighboring materials
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && Math.random() < 0.03) {
+                                    const neighbor = newGrid[ny][nx];
+                                    // Acid dissolves most materials except glass and fire
+                                    if (neighbor !== EMPTY && neighbor !== ACID && neighbor !== GLASS && neighbor !== FIRE) {
+                                        newGrid[ny][nx] = EMPTY;
+                                        // Clear life grids for dissolved materials
+                                        if (neighbor === FIRE) newFireLifeGrid[ny][nx] = 0;
+                                        if (neighbor === STEAM) newSteamLifeGrid[ny][nx] = 0;
+                                        if (neighbor === ACID) newAcidLifeGrid[ny][nx] = 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Lava interactions
+                    else if (cell === LAVA) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny)) {
+                                    const neighbor = newGrid[ny][nx];
+                                    
+                                    // Lava burns flammable materials
+                                    if (materials[neighbor]?.flammable && Math.random() < 0.1) {
+                                        newGrid[ny][nx] = FIRE;
+                                        newFireLifeGrid[ny][nx] = materials[FIRE].life;
+                                        if (neighbor === DEAD_TREE) {
+                                            treeDecompositionGrid[ny][nx] = 0;
+                                        }
+                                    }
+                                    // Lava turns water to steam instantly
+                                    else if (neighbor === WATER && Math.random() < 0.2) {
+                                        newGrid[ny][nx] = STEAM;
+                                        newSteamLifeGrid[ny][nx] = materials[STEAM].life;
+                                    }
+                                    // Lava melts sand to glass
+                                    else if (neighbor === SAND && Math.random() < 0.05) {
+                                        newGrid[ny][nx] = GLASS;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Swap to the new grid set
+            grid = newGrid;
+            fireLifeGrid = newFireLifeGrid;
+            steamLifeGrid = newSteamLifeGrid;
+            acidLifeGrid = newAcidLifeGrid;
+            lavaLifeGrid = newLavaLifeGrid;
+            inchwormLifeGrid = newInchwormLifeGrid;
+            
+            // Toggle the current grid set
+            currentGridSet = currentGridSet === 'A' ? 'B' : 'A';
+            
+            // Process fractal tree growth
+            const fractalGrid = grid.map(row => [...row]);
+            
+            for (let i = treeGrowthQueue.length - 1; i >= 0; i--) {
+                const treeNode = treeGrowthQueue[i];
+                if (!growFractalTree(treeNode, fractalGrid)) {
+                    treeGrowthQueue.splice(i, 1);
+                }
+            }
+            
+            // Copy fractal results back to main grid
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    if (fractalGrid[y][x] === TREE && grid[y][x] === EMPTY) {
+                        grid[y][x] = TREE;
+                    }
+                }
+            }
+            
+            // Update lighting system
+            updateLighting();
+            
+        }
+        
+        function renderGrid() {
+            // Clear image data
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                imageData.data[i] = 0;     // R
+                imageData.data[i + 1] = 0; // G
+                imageData.data[i + 2] = 0; // B
+                imageData.data[i + 3] = 255; // A
+            }
+            
+            // Draw grid to image data
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    const cell = grid[y][x];
+                    if (cell !== EMPTY) {
+                        const index = (y * GRID_WIDTH + x) * 4;
+                        let color = getPixelColor(cell, x, y);   // pass x,y so worm code can pick a variant
+                        
+                        // Modify fire color based on life
+                        if (cell === FIRE) {
+                            const lifeRatio = fireLifeGrid[y][x] / materials[FIRE].life;
+                            color = [
+                                Math.floor(color[0] * lifeRatio),
+                                Math.floor(color[1] * lifeRatio),
+                                Math.floor(color[2] * lifeRatio),
+                                255
+                            ];
+                        }
+                        // Modify steam opacity based on life
+                        else if (cell === STEAM) {
+                            const lifeRatio = steamLifeGrid[y][x] / materials[STEAM].life;
+                            color = [
+                                color[0],
+                                color[1],
+                                color[2],
+                                Math.floor(color[3] * lifeRatio)
+                            ];
+                        }
+                        // Modify acid intensity based on life
+                        else if (cell === ACID) {
+                            const lifeRatio = acidLifeGrid[y][x] / materials[ACID].life;
+                            color = [
+                                Math.floor(color[0] * lifeRatio),
+                                Math.floor(color[1] * lifeRatio),
+                                Math.floor(color[2] * lifeRatio),
+                                255
+                            ];
+                        }
+                        
+                        imageData.data[index] = color[0];     // R
+                        imageData.data[index + 1] = color[1]; // G
+                        imageData.data[index + 2] = color[2]; // B
+                        imageData.data[index + 3] = color[3]; // A
+                    }
+                }
+            }
+            
+            // Apply lighting to the image data
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    const cell = grid[y][x];
+                    if (cell !== EMPTY) {
+                        const index = (y * GRID_WIDTH + x) * 4;
+                        
+                        // Get base pixel color
+                        const baseR = imageData.data[index];
+                        const baseG = imageData.data[index + 1]; 
+                        const baseB = imageData.data[index + 2];
+                        
+                        // Apply HRC lighting as additive tint
+                        let Lr = 0, Lg = 0, Lb = 0;
+                        if (L && L.length > 0) {
+                            // Map full grid coordinates to lighting grid coordinates
+                            const lx = Math.floor(x / LIGHTING_SCALE);
+                            const ly = Math.floor(y / LIGHTING_SCALE);
+                            
+                            if (lx < LIGHTING_WIDTH && ly < LIGHTING_HEIGHT) {
+                                const lIdx = (ly * LIGHTING_WIDTH + lx) * 3;
+                                
+                                if (lIdx + 2 < L.length) {
+                                    Lr = L[lIdx] || 0;
+                                    Lg = L[lIdx + 1] || 0;
+                                    Lb = L[lIdx + 2] || 0;
+                                }
+                            }
+                        }
+                        
+                        // Additive composition with head-room scaling
+                        const BOOST = 0.45;
+                        const rRoom = 255 - baseR;
+                        const gRoom = 255 - baseG;
+                        const bRoom = 255 - baseB;
+                        
+                        imageData.data[index] = Math.min(255, baseR + Lr * BOOST * rRoom / 255);
+                        imageData.data[index + 1] = Math.min(255, baseG + Lg * BOOST * gRoom / 255);
+                        imageData.data[index + 2] = Math.min(255, baseB + Lb * BOOST * bRoom / 255);
+                    }
+                }
+            }
+            
+            // Use reusable temporary canvas for the pixel data
+            tempCtx.putImageData(imageData, 0, 0);
+            
+            // Scale up to main canvas
+            ctx.imageSmoothingEnabled = false;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(tempCanvas, 0, 0, GRID_WIDTH, GRID_HEIGHT, 0, 0, canvas.width, canvas.height);
+            
+            // Draw generator indicators on top (only when hovering)
+            generators.forEach(generator => {
+                // Check if mouse is hovering over this generator
+                const isHovering = Math.abs(mouseX - generator.x) <= generator.radius + 1 && 
+                                 Math.abs(mouseY - generator.y) <= generator.radius + 1;
+                
+                if (isHovering) {
+                    const screenX = generator.x * CELL_SIZE;
+                    const screenY = generator.y * CELL_SIZE;
+                    
+                    // Draw a pulsing border around generators
+                    const pulse = Math.sin(Date.now() * 0.005) * 0.5 + 0.5; // 0 to 1
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + pulse * 0.5})`;
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(
+                        screenX - generator.radius * CELL_SIZE, 
+                        screenY - generator.radius * CELL_SIZE,
+                        (generator.radius * 2 + 1) * CELL_SIZE,
+                        (generator.radius * 2 + 1) * CELL_SIZE
+                    );
+                }
+            });
+        }
+        
+        function clearGrid() {
+            initializeGrids();
+            treeGrowthQueue = [];
+            generators = [];
+            treeUpdateCounter = 0;
+        }
+        
+        function resizeCanvas() {
+            const { width: viewportWidth, height: viewportHeight } = getViewportDimensions();
+            const newGridWidth = Math.floor(viewportWidth / CELL_SIZE);
+            const newGridHeight = Math.floor(viewportHeight / CELL_SIZE);
+            
+            // Only resize if dimensions actually changed
+            if (newGridWidth !== GRID_WIDTH || newGridHeight !== GRID_HEIGHT) {
+                // Store old grid data
+                const oldGrid = grid;
+                const oldFireLife = fireLifeGrid;
+                const oldSteamLife = steamLifeGrid;
+                const oldAcidLife = acidLifeGrid;
+                const oldLavaLife = lavaLifeGrid;
+                const oldInchwormLife = inchwormLifeGrid;
+                const oldTreeDecomp = treeDecompositionGrid;
+                const oldColorCache = colorCache;
+                const oldWidth = GRID_WIDTH;
+                const oldHeight = GRID_HEIGHT;
+                
+                // Update dimensions
+                GRID_WIDTH = newGridWidth;
+                GRID_HEIGHT = newGridHeight;
+                canvas.width = GRID_WIDTH * CELL_SIZE;
+                canvas.height = GRID_HEIGHT * CELL_SIZE;
+                
+                // Store current grid set before reinitializing
+                const oldCurrentGridSet = currentGridSet;
+                
+                // Initialize new grids
+                initializeGrids();
+                
+                // Restore the current grid set
+                currentGridSet = oldCurrentGridSet;
+                
+                // Copy over existing data if possible
+                if (oldGrid) {
+                    const copyWidth = Math.min(oldWidth, GRID_WIDTH);
+                    const copyHeight = Math.min(oldHeight, GRID_HEIGHT);
+                    
+                    for (let y = 0; y < copyHeight; y++) {
+                        for (let x = 0; x < copyWidth; x++) {
+                            // Copy to both grid sets to maintain double buffer consistency
+                            gridA[y][x] = oldGrid[y][x];
+                            gridB[y][x] = oldGrid[y][x];
+                            fireLifeGridA[y][x] = oldFireLife[y][x];
+                            fireLifeGridB[y][x] = oldFireLife[y][x];
+                            steamLifeGridA[y][x] = oldSteamLife[y][x];
+                            steamLifeGridB[y][x] = oldSteamLife[y][x];
+                            acidLifeGridA[y][x] = oldAcidLife[y][x];
+                            acidLifeGridB[y][x] = oldAcidLife[y][x];
+                            lavaLifeGridA[y][x] = oldLavaLife[y][x];
+                            lavaLifeGridB[y][x] = oldLavaLife[y][x];
+                            inchwormLifeGridA[y][x] = oldInchwormLife[y][x];
+                            inchwormLifeGridB[y][x] = oldInchwormLife[y][x];
+                            treeDecompositionGrid[y][x] = oldTreeDecomp[y][x];
+                            // Safe colorCache copy with bounds checking
+                            if (y < oldHeight && x < oldWidth && y < GRID_HEIGHT && x < GRID_WIDTH && oldColorCache[y] && oldColorCache[y][x] !== undefined) {
+                                colorCache[y][x] = oldColorCache[y][x];
+                            }
+                        }
+                    }
+                    
+                    // Set current grid pointers to the correct set
+                    if (currentGridSet === 'A') {
+                        grid = gridA;
+                        fireLifeGrid = fireLifeGridA;
+                        steamLifeGrid = steamLifeGridA;
+                        acidLifeGrid = acidLifeGridA;
+                        lavaLifeGrid = lavaLifeGridA;
+                        inchwormLifeGrid = inchwormLifeGridA;
+                    } else {
+                        grid = gridB;
+                        fireLifeGrid = fireLifeGridB;
+                        steamLifeGrid = steamLifeGridB;
+                        acidLifeGrid = acidLifeGridB;
+                        lavaLifeGrid = lavaLifeGridB;
+                        inchwormLifeGrid = inchwormLifeGridB;
+                    }
+                }
+            }
+        }
+        
+        function togglePause() {
+            isPaused = !isPaused;
+            const pauseButton = document.querySelector('[onclick="togglePause()"]');
+            pauseButton.textContent = isPaused ? '▶' : '■';
+        }
+        
+        function toggleMenu() {
+            const toggleableElements = document.querySelectorAll('.toggleable');
+            const isCollapsed = toggleableElements[0].style.display === 'none';
+            
+            toggleableElements.forEach(element => {
+                element.style.display = isCollapsed ? 'flex' : 'none';
+            });
+        }
+        
+        function increaseBrushSize() {
+            brushSize = Math.min(brushSize + 1, 10); // Cap at 10
+            document.getElementById('brushSizeDisplay').textContent = brushSize;
+        }
+        
+        function decreaseBrushSize() {
+            brushSize = Math.max(brushSize - 1, 1); // Min size 1
+            document.getElementById('brushSizeDisplay').textContent = brushSize;
+        }
+        
+        
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            const pos = getGridPos(e.clientX, e.clientY);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            addMaterial(mouseX, mouseY, selectedMaterial, brushSize);
+        });
+        
+        canvas.addEventListener('dblclick', (e) => {
+            const pos = getGridPos(e.clientX, e.clientY);
+            
+            if (selectedMaterial === ERASER) {
+                // Remove generator at this position
+                generators = generators.filter(gen => 
+                    Math.abs(gen.x - pos.x) > 2 || Math.abs(gen.y - pos.y) > 2
+                );
+            } else {
+                // Add generator at this position
+                generators.push({
+                    x: pos.x,
+                    y: pos.y,
+                    material: selectedMaterial,
+                    radius: brushSize
+                });
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            const pos = getGridPos(e.clientX, e.clientY);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            if (isMouseDown) {
+                addMaterial(mouseX, mouseY, selectedMaterial, brushSize);
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            isMouseDown = false;
+        });
+        
+        // Touch events for mobile support
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent scrolling and other default behaviors
+            isMouseDown = true;
+            const touch = e.touches[0];
+            const pos = getGridPos(touch.clientX, touch.clientY);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            addMaterial(mouseX, mouseY, selectedMaterial, brushSize);
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault(); // Prevent scrolling
+            const touch = e.touches[0];
+            const pos = getGridPos(touch.clientX, touch.clientY);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            if (isMouseDown) {
+                addMaterial(mouseX, mouseY, selectedMaterial, brushSize);
+            }
+        });
+        
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            isMouseDown = false;
+        });
+        
+        canvas.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            isMouseDown = false;
+        });
+        
+        // Keyboard events
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                togglePause();
+            }
+        });
+        
+        // Window resize event
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Visual viewport resize event for mobile Safari
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', resizeCanvas);
+        }
+        
+        // Initial resize to set proper size
+        resizeCanvas();
+        
+        // Image mapping system
+        const materialPalette = {
+            [SAND]: [220, 184, 112],
+            [WATER]: [74, 144, 226],
+            [FIRE]: [255, 107, 53],
+            [DIRT]: [139, 69, 19],
+            [TREE]: [34, 139, 34],
+            [GLASS]: [180, 220, 240],
+            [STEAM]: [240, 240, 240],
+            [ACID]: [50, 255, 50],
+            [LAVA]: [255, 69, 0],
+            [EMPTY]: [0, 0, 0]
+        };
+        
+        // Calculate color distance using RGB
+        function colorDistance(rgb1, rgb2) {
+            const dr = rgb1[0] - rgb2[0];
+            const dg = rgb1[1] - rgb2[1];
+            const db = rgb1[2] - rgb2[2];
+            return Math.sqrt(dr * dr + dg * dg + db * db);
+        }
+        
+        // Find closest material for a given RGB color
+        function findClosestMaterial(rgb) {
+            let closestMaterial = SAND;
+            let closestDistance = Infinity;
+            
+            for (const [material, color] of Object.entries(materialPalette)) {
+                const distance = colorDistance(rgb, color);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestMaterial = parseInt(material);
+                }
+            }
+            
+            return closestMaterial;
+        }
+        
+        // Floyd-Steinberg dithering
+        function ditherImage(imageData, width, height) {
+            const data = new Uint8ClampedArray(imageData.data);
+            
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+                    const oldR = data[idx];
+                    const oldG = data[idx + 1];
+                    const oldB = data[idx + 2];
+                    
+                    // Find closest material color
+                    const material = findClosestMaterial([oldR, oldG, oldB]);
+                    const newColor = materialPalette[material];
+                    
+                    // Set new color
+                    data[idx] = newColor[0];
+                    data[idx + 1] = newColor[1];
+                    data[idx + 2] = newColor[2];
+                    
+                    // Calculate error
+                    const errR = oldR - newColor[0];
+                    const errG = oldG - newColor[1];
+                    const errB = oldB - newColor[2];
+                    
+                    // Distribute error to neighboring pixels
+                    const distributeError = (dx, dy, factor) => {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                            const nIdx = (ny * width + nx) * 4;
+                            data[nIdx] += errR * factor;
+                            data[nIdx + 1] += errG * factor;
+                            data[nIdx + 2] += errB * factor;
+                        }
+                    };
+                    
+                    distributeError(1, 0, 7/16);
+                    distributeError(-1, 1, 3/16);
+                    distributeError(0, 1, 5/16);
+                    distributeError(1, 1, 1/16);
+                }
+            }
+            
+            return new ImageData(data, width, height);
+        }
+        
+        // Map image to canvas (1:1 mapping, image already stretched)
+        function mapImageToCanvas(imageData, startX = 0, startY = 0) {
+            const { width, height } = imageData;
+            const data = imageData.data;
+            
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const srcIdx = (y * width + x) * 4;
+                    
+                    const r = data[srcIdx];
+                    const g = data[srcIdx + 1];
+                    const b = data[srcIdx + 2];
+                    const a = data[srcIdx + 3];
+                    
+                    // Skip transparent pixels
+                    if (a < 128) continue;
+                    
+                    const gridX = startX + x;
+                    const gridY = startY + y;
+                    
+                    if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
+                        const material = findClosestMaterial([r, g, b]);
+                        grid[gridY][gridX] = material;
+                        
+                        // Clear color cache for this pixel
+                        clearColorCache(gridX, gridY);
+                    }
+                }
+            }
+        }
+        
+        // Loading indicator using pause button
+        const loadingIcons = ['↺', '↻', '↷', '↶'];
+        let loadingIconIndex = 0;
+        let loadingInterval = null;
+        
+        function showLoading() {
+            const pauseBtn = document.querySelector('[onclick="togglePause()"]');
+            if (pauseBtn) {
+                loadingIconIndex = 0;
+                pauseBtn.textContent = loadingIcons[loadingIconIndex];
+                loadingInterval = setInterval(() => {
+                    loadingIconIndex = (loadingIconIndex + 1) % loadingIcons.length;
+                    pauseBtn.textContent = loadingIcons[loadingIconIndex];
+                }, 200);
+            }
+        }
+        
+        function hideLoading() {
+            const pauseBtn = document.querySelector('[onclick="togglePause()"]');
+            if (pauseBtn) {
+                clearInterval(loadingInterval);
+                pauseBtn.textContent = isPaused ? '▶' : '■';
+            }
+        }
+        
+        // Ctrl+V clipboard paste handler
+        document.addEventListener('paste', function(e) {
+            const items = e.clipboardData.items;
+            
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                
+                if (item.type.indexOf('image') !== -1) {
+                    const file = item.getAsFile();
+                    const reader = new FileReader();
+                    
+                    showLoading();
+                    
+                    reader.onload = function(event) {
+                        const img = new Image();
+                        img.onload = function() {
+                            // Get current canvas dimensions
+                            const { width: viewportWidth, height: viewportHeight } = getViewportDimensions();
+                            const canvasWidth = Math.floor(viewportWidth / CELL_SIZE);
+                            const canvasHeight = Math.floor(viewportHeight / CELL_SIZE);
+                            
+                            // Create canvas to stretch image to canvas aspect ratio
+                            const tempCanvas = document.createElement('canvas');
+                            const tempCtx = tempCanvas.getContext('2d');
+                            tempCanvas.width = canvasWidth;
+                            tempCanvas.height = canvasHeight;
+                            
+                            // Stretch image to fill canvas dimensions
+                            tempCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+                            const imageData = tempCtx.getImageData(0, 0, canvasWidth, canvasHeight);
+                            
+                            // Apply dithering
+                            const ditheredData = ditherImage(imageData, canvasWidth, canvasHeight);
+                            
+                            // Map to canvas (now 1:1 mapping)
+                            mapImageToCanvas(ditheredData);
+                            
+                            hideLoading();
+                        };
+                        img.src = event.target.result;
+                    };
+                    
+                    reader.readAsDataURL(file);
+                    break;
+                }
+            }
+        });
+        
+        // Main game loop
+        function gameLoop() {
+            updateSimulation();
+            renderGrid();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Start the simulation
+        gameLoop();
+    </script>
+</body>
+</html>

@@ -1,0 +1,1926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>pixelarium</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000; 
+        }
+        canvas { 
+            display: block; 
+            image-rendering: pixelated;
+            width: 100vw;
+            height: 100vh;
+            margin: 0 auto;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+            background: #333;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #555;
+        }
+        #swatch {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .material-btn {
+            width: 80px;
+            height: 30px;
+            border: 2px solid #666;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .material-btn.selected {
+            border-color: #fff;
+            box-shadow: 0 0 5px rgba(255,255,255,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="swatch">
+        <div class="material-btn selected" onclick="selectMaterial('SAND')" style="background: #dcb870; color: #000;">SAND</div>
+        <div class="material-btn" onclick="selectMaterial('WATER')" style="background: #4a90e2; color: #fff;">WATER</div>
+        <div class="material-btn" onclick="selectMaterial('FIRE')" style="background: #ff6b35; color: #fff;">FIRE</div>
+        <div class="material-btn" onclick="selectMaterial('DIRT')" style="background: #8b4513; color: #fff;">DIRT</div>
+        <div class="material-btn" onclick="selectMaterial('TREE')" style="background: #228b22; color: #fff;">TREE</div>
+        <div class="material-btn" onclick="selectMaterial('GLASS')" style="background: #b4dcf0; color: #000;">GLASS</div>
+        <div class="material-btn" onclick="selectMaterial('STEAM')" style="background: #f0f0f0; color: #000;">STEAM</div>
+        <div class="material-btn" onclick="selectMaterial('ACID')" style="background: #32ff32; color: #000;">ACID</div>
+        <div class="material-btn" onclick="selectMaterial('ERASER')" style="background: #ff64ff; color: #000;">ERASER</div>
+        <div class="material-btn" onclick="selectMaterial('LAVA')" style="background: #ff4500; color: #fff;">LAVA</div>
+        <div class="material-btn" onclick="selectMaterial('INCHWORM')" style="background: #9acd32; color: #000;">WORM</div>
+        <div class="material-btn" onclick="clearGrid()" style="background: #666; color: #fff;">CLEAR</div>
+        <div class="material-btn" onclick="togglePause()" style="background: #666; color: #fff;">PAUSE</div>
+    </div>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Grid settings - dynamically sized to browser window
+        const CELL_SIZE = 3;
+        let GRID_WIDTH = Math.floor(window.innerWidth / CELL_SIZE);
+        let GRID_HEIGHT = Math.floor(window.innerHeight / CELL_SIZE);
+        
+        canvas.width = GRID_WIDTH * CELL_SIZE;
+        canvas.height = GRID_HEIGHT * CELL_SIZE;
+        
+        // Material types
+        const EMPTY = 0;
+        const SAND = 1;
+        const WATER = 2;
+        const FIRE = 3;
+        const DIRT = 4;
+        const TREE = 5;
+        const GLASS = 6;
+        const STEAM = 7;
+        const ACID = 8;
+        const ERASER = 9;
+        const DEAD_TREE = 10;
+        const LAVA = 11;
+        const INCHWORM = 12;
+        const INCHWORM_HEAD = 13;
+        const INCHWORM_BODY = 14;
+        
+        // Current selected material
+        let selectedMaterial = SAND;
+        
+        // Material properties
+        const materials = {
+            [EMPTY]: { density: 0, flammable: false, liquid: false },
+            [SAND]: { density: 3, flammable: false, liquid: false },
+            [WATER]: { density: 2, flammable: false, liquid: true },
+            [FIRE]: { density: 1, flammable: false, liquid: false, life: 60 },
+            [DIRT]: { density: 4, flammable: false, liquid: false },
+            [TREE]: { density: 5, flammable: true, liquid: false },
+            [GLASS]: { density: 8, flammable: false, liquid: false },
+            [STEAM]: { density: 0.5, flammable: false, liquid: false, life: 120 },
+            [ACID]: { density: 2.5, flammable: false, liquid: true, life: 300 },
+            [ERASER]: { density: 1, flammable: false, liquid: false },
+            [DEAD_TREE]: { density: 5, flammable: true, liquid: false },
+            [LAVA]: { density: 4, flammable: false, liquid: true },
+            [INCHWORM]: { density: 1, flammable: true, liquid: false, life: 300 },
+            [INCHWORM_HEAD]: { density: 1, flammable: true, liquid: false, life: 300 },
+            [INCHWORM_BODY]: { density: 1, flammable: true, liquid: false, life: 300 }
+        };
+        
+        // Colors for each material
+        const materialColors = {
+            [EMPTY]: [[0, 0, 0, 255]],
+            [SAND]: [
+                [220, 184, 112, 255],
+                [210, 174, 102, 255],
+                [200, 164, 92, 255],
+                [190, 154, 82, 255]
+            ],
+            [WATER]: [
+                [74, 144, 226, 255],
+                [64, 134, 216, 255],
+                [84, 154, 236, 255],
+                [54, 124, 206, 255]
+            ],
+            [FIRE]: [
+                [255, 107, 53, 255],
+                [255, 140, 0, 255],
+                [255, 69, 0, 255],
+                [255, 165, 0, 255]
+            ],
+            [DIRT]: [
+                [139, 69, 19, 255],
+                [160, 82, 45, 255],
+                [101, 67, 33, 255],
+                [120, 75, 25, 255]
+            ],
+            [TREE]: [
+                [34, 139, 34, 255],
+                [46, 125, 50, 255],
+                [56, 142, 60, 255],
+                [27, 94, 32, 255]
+            ],
+            [GLASS]: [
+                [180, 220, 240, 200],
+                [170, 210, 230, 200],
+                [190, 230, 250, 200],
+                [160, 200, 220, 200]
+            ],
+            [STEAM]: [
+                [240, 240, 240, 150],
+                [230, 230, 230, 140],
+                [250, 250, 250, 160],
+                [220, 220, 220, 130]
+            ],
+            [ACID]: [
+                [50, 255, 50, 255],
+                [40, 245, 40, 255],
+                [60, 255, 60, 255],
+                [30, 235, 30, 255]
+            ],
+            [ERASER]: [
+                [255, 100, 255, 255],
+                [245, 90, 245, 255],
+                [255, 110, 255, 255],
+                [235, 80, 235, 255]
+            ],
+            [DEAD_TREE]: [
+                [101, 67, 33, 255],
+                [120, 75, 25, 255],
+                [90, 60, 30, 255],
+                [110, 70, 35, 255]
+            ],
+            [LAVA]: [
+                [255, 69, 0, 255],
+                [255, 140, 0, 255], 
+                [255, 99, 71, 255],
+                [220, 20, 60, 255]
+            ],
+            [INCHWORM]: [
+                [144, 238, 144, 255],
+                [154, 205, 50, 255],
+                [173, 255, 47, 255],
+                [124, 252, 0, 255]
+            ],
+            [INCHWORM_HEAD]: [
+                [34, 139, 34, 255],  // Darker green for head
+                [46, 125, 50, 255],
+                [27, 94, 32, 255],
+                [56, 142, 60, 255]
+            ],
+            [INCHWORM_BODY]: [
+                [173, 255, 47, 255], // Lighter green for body
+                [154, 205, 50, 255],
+                [144, 238, 144, 255],
+                [124, 252, 0, 255]
+            ]
+        };
+        
+        // Grid and image data
+        let grid, fireLifeGrid, steamLifeGrid, acidLifeGrid, lavaLifeGrid, inchwormLifeGrid, imageData;
+        let gridA, gridB, fireLifeGridA, fireLifeGridB, steamLifeGridA, steamLifeGridB;
+        let acidLifeGridA, acidLifeGridB, lavaLifeGridA, lavaLifeGridB, inchwormLifeGridA, inchwormLifeGridB;
+        let currentGridSet = 'A'; // Toggle between A and B grid sets
+        let treeGrowthQueue = []; // Queue for tree growth patterns
+        let treeDecompositionGrid; // Grid to track decomposing trees
+        let wormList = []; // Track all 3-pixel worms
+        let nextWormId = 1;
+        let colorCache; // Cache for consistent material colors per position
+        let tempCanvas, tempCtx; // Reusable canvas for rendering
+        let treeUpdateCounter = 0; // Counter for tree updates
+        let generators = []; // Array to store generator positions and materials
+        
+        function initializeGrids() {
+            // Create double buffer grid sets
+            gridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(EMPTY));
+            gridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(EMPTY));
+            fireLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            fireLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            steamLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            steamLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            acidLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            acidLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            lavaLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            lavaLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            inchwormLifeGridA = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            inchwormLifeGridB = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            
+            treeDecompositionGrid = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(0));
+            colorCache = new Array(GRID_HEIGHT).fill().map(() => new Array(GRID_WIDTH).fill(null));
+            
+            // Initialize current grids to A set
+            grid = gridA;
+            fireLifeGrid = fireLifeGridA;
+            steamLifeGrid = steamLifeGridA;
+            acidLifeGrid = acidLifeGridA;
+            lavaLifeGrid = lavaLifeGridA;
+            inchwormLifeGrid = inchwormLifeGridA;
+            
+            // Create reusable canvas for rendering
+            tempCanvas = document.createElement('canvas');
+            tempCanvas.width = GRID_WIDTH;
+            tempCanvas.height = GRID_HEIGHT;
+            tempCtx = tempCanvas.getContext('2d');
+            
+            imageData = ctx.createImageData(GRID_WIDTH, GRID_HEIGHT);
+        }
+        
+        initializeGrids();
+        
+        let isMouseDown = false;
+        let mouseX = 0;
+        let mouseY = 0;
+        let isPaused = false;
+        
+        function getRandomColor(material) {
+            const colors = materialColors[material];
+            return colors[0]; // Always use first color
+        }
+        
+        function getPixelColor(material, x, y) {
+            // Check if we have a cached color for this position and material
+            if (colorCache[y][x] && colorCache[y][x].material === material) {
+                return colorCache[y][x].color;
+            }
+            
+            // Generate new random color for new pixel and cache it
+            const color = getRandomColor(material);
+            colorCache[y][x] = { material, color };
+            return color;
+        }
+        
+        function clearColorCache(x, y) {
+            if (colorCache && colorCache[y] && colorCache[y][x]) {
+                colorCache[y][x] = null;
+            }
+        }
+        
+        function selectMaterial(materialName) {
+            const materialMap = { SAND, WATER, FIRE, DIRT, TREE, GLASS, STEAM, ACID, ERASER, DEAD_TREE, LAVA, INCHWORM };
+            selectedMaterial = materialMap[materialName];
+            
+            // Update UI
+            document.querySelectorAll('.material-btn').forEach(btn => btn.classList.remove('selected'));
+            event.target.classList.add('selected');
+        }
+        
+        function getGridPos(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((clientX - rect.left) / CELL_SIZE);
+            const y = Math.floor((clientY - rect.top) / CELL_SIZE);
+            return { x, y };
+        }
+        
+        function isValidPos(x, y) {
+            return x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT;
+        }
+        
+        function canPlaceTree(x, y, gridRef = grid) {
+            if (!isValidPos(x, y) || gridRef[y][x] !== EMPTY) {
+                return false;
+            }
+            return true;
+        }
+        
+        
+        function addMaterial(x, y, material, radius = 3) {
+            // Special handling for worm spawning
+            if (material === INCHWORM) {
+                spawnSingleWorm(x, y);
+                return;
+            }
+            
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (isValidPos(nx, ny) && Math.sqrt(dx*dx + dy*dy) <= radius) {
+                        if ((grid[ny][nx] === EMPTY || material === ERASER) && Math.random() < 0.7) {
+                            if (material === ERASER) {
+                                // Eraser removes whatever is there
+                                grid[ny][nx] = EMPTY;
+                                fireLifeGrid[ny][nx] = 0;
+                                steamLifeGrid[ny][nx] = 0;
+                                acidLifeGrid[ny][nx] = 0;
+                                lavaLifeGrid[ny][nx] = 0;
+                                inchwormLifeGrid[ny][nx] = 0;
+                                treeDecompositionGrid[ny][nx] = 0;
+                            } else {
+                                grid[ny][nx] = material;
+                                if (material === FIRE) {
+                                    fireLifeGrid[ny][nx] = materials[FIRE].life;
+                                } else if (material === STEAM) {
+                                    steamLifeGrid[ny][nx] = materials[STEAM].life;
+                                } else if (material === ACID) {
+                                    acidLifeGrid[ny][nx] = materials[ACID].life;
+                                } else if (material === DEAD_TREE) {
+                                    treeDecompositionGrid[ny][nx] = 180; // Start decomposition timer
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        function spawnSingleWorm(centerX, centerY) {
+            // Find empty spaces around the click position for a single worm
+            const spawnCandidates = [];
+            
+            // Check 5x5 area around click position
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const x = centerX + dx;
+                    const y = centerY + dy;
+                    
+                    if (isValidPos(x, y) && grid[y][x] === EMPTY) {
+                        // Check if this position has surface contact
+                        if (hasValidSurface(x, y)) {
+                            spawnCandidates.push({ x, y });
+                        }
+                    }
+                }
+            }
+            
+            // Spawn worm if enough empty spaces with surface contact
+            if (spawnCandidates.length >= 3) {
+                spawnThreePixelWorm(spawnCandidates, grid, inchwormLifeGrid);
+            }
+        }
+
+        // Fractal tree growth functions
+        function startTreeGrowth(x, y) {
+            if (isValidPos(x, y)) {
+                treeGrowthQueue.push({
+                    x: x, y: y, direction: 0, length: Math.floor(Math.random() * 8) + 12,
+                    thickness: 3, generation: 0, age: 0
+                });
+            }
+        }
+        
+        function growFractalTree(treeNode, workingGrid) {
+            if (treeNode.age >= treeNode.length || !isValidPos(treeNode.x, treeNode.y)) {
+                return false;
+            }
+            
+            if (workingGrid[treeNode.y][treeNode.x] === GLASS) {
+                return false;
+            }
+            
+            // Calculate direction with some randomness
+            let dx = 0, dy = -1;
+            if (treeNode.direction === -1) { dx = -1; dy = -1; }
+            if (treeNode.direction === 1) { dx = 1; dy = -1; }
+            
+            // Add random sway to make trees more natural
+            if (Math.random() < 0.3) {
+                dx += (Math.random() - 0.5) * 0.8;
+            }
+            
+            const nextX = Math.floor(treeNode.x + dx);
+            const nextY = treeNode.y + dy;
+            
+            if (!isValidPos(nextX, nextY) || workingGrid[nextY][nextX] === GLASS) {
+                return false;
+            }
+            
+            // Place tree pixels with thickness (trunk width)
+            for (let t = 0; t < treeNode.thickness; t++) {
+                const growX = Math.floor(treeNode.x + (Math.random() - 0.5) * treeNode.thickness);
+                const growY = treeNode.y;
+                
+                if (isValidPos(growX, growY) && workingGrid[growY][growX] === EMPTY) {
+                    // Check if placing this pixel would cross glass
+                    let blocked = false;
+                    const steps = Math.abs(growX - treeNode.x);
+                    for (let step = 0; step <= steps; step++) {
+                        const checkX = treeNode.x + Math.sign(growX - treeNode.x) * step;
+                        if (isValidPos(checkX, growY) && workingGrid[growY][checkX] === GLASS) {
+                            blocked = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!blocked) {
+                        workingGrid[growY][growX] = TREE;
+                    }
+                }
+            }
+            
+            treeNode.x = nextX;
+            treeNode.y = nextY;
+            treeNode.age++;
+            
+            // Create branches with varying probability based on thickness (thicker = more branching)
+            const branchProbability = 0.2 + (treeNode.thickness * 0.1);
+            if (treeNode.generation < 3 && treeNode.age > 3 && treeNode.age % 4 === 0 && Math.random() < branchProbability) {
+                // Left branch
+                if (Math.random() < 0.5) {
+                    treeGrowthQueue.push({
+                        x: treeNode.x, y: treeNode.y, direction: -1,
+                        length: Math.floor(treeNode.length * 0.7),
+                        thickness: Math.max(1, treeNode.thickness - 1),
+                        generation: treeNode.generation + 1, age: 0
+                    });
+                }
+                // Right branch  
+                if (Math.random() < 0.5) {
+                    treeGrowthQueue.push({
+                        x: treeNode.x, y: treeNode.y, direction: 1,
+                        length: Math.floor(treeNode.length * 0.7),
+                        thickness: Math.max(1, treeNode.thickness - 1),
+                        generation: treeNode.generation + 1, age: 0
+                    });
+                }
+            }
+            
+            return true;
+        }
+        
+        
+        
+        // Worm functions
+        function spawnThreePixelWorm(spawnCandidates, grid, lifeGrid) {
+            // Shuffle candidates to pick random positions
+            const shuffled = [...spawnCandidates];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            
+            // Try to find 3 connected positions
+            for (let i = 0; i < shuffled.length - 2; i++) {
+                const head = shuffled[i];
+                
+                // Find positions adjacent to head for body
+                const bodyOptions = shuffled.filter(pos => 
+                    Math.abs(pos.x - head.x) <= 1 && Math.abs(pos.y - head.y) <= 1 && 
+                    !(pos.x === head.x && pos.y === head.y)
+                );
+                
+                if (bodyOptions.length > 0) {
+                    const body = bodyOptions[0];
+                    
+                    // Find positions adjacent to body for tail
+                    const tailOptions = shuffled.filter(pos => 
+                        Math.abs(pos.x - body.x) <= 1 && Math.abs(pos.y - body.y) <= 1 && 
+                        !(pos.x === head.x && pos.y === head.y) && 
+                        !(pos.x === body.x && pos.y === body.y)
+                    );
+                    
+                    if (tailOptions.length > 0) {
+                        const tail = tailOptions[0];
+                        
+                        // Create the worm
+                        const wormId = nextWormId++;
+                        const worm = {
+                            id: wormId,
+                            head: { x: head.x, y: head.y },
+                            body: { x: body.x, y: body.y },
+                            tail: { x: tail.x, y: tail.y },
+                            life: materials[INCHWORM].life,
+                            direction: { x: 0, y: 0 } // Will be set on first move
+                        };
+                        
+                        wormList.push(worm);
+                        
+                        // Place worm pixels
+                        grid[head.y][head.x] = INCHWORM_HEAD;
+                        grid[body.y][body.x] = INCHWORM_BODY;
+                        grid[tail.y][tail.x] = INCHWORM;
+                        
+                        lifeGrid[head.y][head.x] = worm.life;
+                        lifeGrid[body.y][body.x] = worm.life;
+                        lifeGrid[tail.y][tail.x] = worm.life;
+                        
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function checkWormBreeding() {
+            // Check every worm against every other worm for breeding opportunities
+            for (let i = 0; i < wormList.length; i++) {
+                for (let j = i + 1; j < wormList.length; j++) {
+                    const worm1 = wormList[i];
+                    const worm2 = wormList[j];
+                    
+                    // Check if worms are close enough to breed (any part within 2 pixels)
+                    if (areWormsClose(worm1, worm2)) {
+                        // Breeding conditions: both worms must be mature (lived at least 25 frames)
+                        const worm1Age = materials[INCHWORM].life - worm1.life;
+                        const worm2Age = materials[INCHWORM].life - worm2.life;
+                        
+                        if (worm1Age >= 25 && worm2Age >= 25 && Math.random() < 0.08) {
+                            // Attempt to breed
+                            attemptWormBreeding(worm1, worm2);
+                        }
+                    }
+                }
+            }
+        }
+        
+        function areWormsClose(worm1, worm2) {
+            // Check if any part of worm1 is within 2 pixels of any part of worm2
+            const worm1Parts = [worm1.head, worm1.body, worm1.tail];
+            const worm2Parts = [worm2.head, worm2.body, worm2.tail];
+            
+            for (const part1 of worm1Parts) {
+                for (const part2 of worm2Parts) {
+                    const distance = Math.abs(part1.x - part2.x) + Math.abs(part1.y - part2.y);
+                    if (distance <= 2) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        function attemptWormBreeding(worm1, worm2) {
+            // Find breeding area - look for empty spaces near both worms
+            const breedingCandidates = [];
+            
+            // Check area around both worms for empty spaces with surface contact
+            const checkAreas = [
+                [worm1.head, worm1.body, worm1.tail],
+                [worm2.head, worm2.body, worm2.tail]
+            ];
+            
+            for (const wormParts of checkAreas) {
+                for (const part of wormParts) {
+                    // Check 3x3 area around each worm part
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            const x = part.x + dx;
+                            const y = part.y + dy;
+                            
+                            if (isValidPos(x, y) && grid[y][x] === EMPTY) {
+                                if (hasValidSurface(x, y)) {
+                                    breedingCandidates.push({ x, y });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Remove duplicates
+            const uniqueCandidates = breedingCandidates.filter((candidate, index, arr) => 
+                arr.findIndex(c => c.x === candidate.x && c.y === candidate.y) === index
+            );
+            
+            // Spawn new worm if enough space
+            if (uniqueCandidates.length >= 3) {
+                spawnThreePixelWorm(uniqueCandidates, grid, inchwormLifeGrid);
+                
+                // Reduce life of parent worms (breeding cost)
+                worm1.life -= 15;
+                worm2.life -= 15;
+            }
+        }
+        
+        function updateWorms() {
+            // Update worms every few frames for performance
+            if (treeUpdateCounter % 5 !== 0) return;
+            
+            // Check for breeding opportunities first
+            checkWormBreeding();
+            
+            for (let i = wormList.length - 1; i >= 0; i--) {
+                const worm = wormList[i];
+                
+                // Age the worm
+                worm.life--;
+                if (worm.life <= 0) {
+                    // Remove dead worm
+                    removeWorm(worm);
+                    wormList.splice(i, 1);
+                    continue;
+                }
+                
+                // Check if worm died (in water/lava or eaten)
+                if (!isWormAlive(worm)) {
+                    removeWorm(worm);
+                    wormList.splice(i, 1);
+                    continue;
+                }
+                
+                // Move the worm
+                moveWorm(worm);
+            }
+        }
+        
+        function isWormAlive(worm) {
+            // Check if all parts of the worm still exist and aren't in deadly materials
+            const headCell = grid[worm.head.y] && grid[worm.head.y][worm.head.x];
+            const bodyCell = grid[worm.body.y] && grid[worm.body.y][worm.body.x];
+            const tailCell = grid[worm.tail.y] && grid[worm.tail.y][worm.tail.x];
+            
+            return headCell === INCHWORM_HEAD && 
+                   bodyCell === INCHWORM_BODY && 
+                   tailCell === INCHWORM;
+        }
+        
+        function removeWorm(worm) {
+            // Convert dead worm pixels to acid
+            if (isValidPos(worm.head.x, worm.head.y) && grid[worm.head.y][worm.head.x] === INCHWORM_HEAD) {
+                grid[worm.head.y][worm.head.x] = ACID;
+                acidLifeGrid[worm.head.y][worm.head.x] = materials[ACID].life;
+                inchwormLifeGrid[worm.head.y][worm.head.x] = 0;
+            }
+            if (isValidPos(worm.body.x, worm.body.y) && grid[worm.body.y][worm.body.x] === INCHWORM_BODY) {
+                grid[worm.body.y][worm.body.x] = ACID;
+                acidLifeGrid[worm.body.y][worm.body.x] = materials[ACID].life;
+                inchwormLifeGrid[worm.body.y][worm.body.x] = 0;
+            }
+            if (isValidPos(worm.tail.x, worm.tail.y) && grid[worm.tail.y][worm.tail.x] === INCHWORM) {
+                grid[worm.tail.y][worm.tail.x] = ACID;
+                acidLifeGrid[worm.tail.y][worm.tail.x] = materials[ACID].life;
+                inchwormLifeGrid[worm.tail.y][worm.tail.x] = 0;
+            }
+        }
+        
+        function moveWorm(worm) {
+            // Find valid moves for the head (surface contact required)
+            const headMoves = [];
+            
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    
+                    const newX = worm.head.x + dx;
+                    const newY = worm.head.y + dy;
+                    
+                    if (isValidPos(newX, newY)) {
+                        const targetCell = grid[newY][newX];
+                        
+                        // Can move to empty space or eat trees
+                        if (targetCell === EMPTY || targetCell === TREE) {
+                            // Check surface contact
+                            if (hasValidSurface(newX, newY)) {
+                                headMoves.push({ 
+                                    x: newX, 
+                                    y: newY, 
+                                    eatsTree: targetCell === TREE 
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (headMoves.length > 0) {
+                const move = headMoves[Math.floor(Math.random() * headMoves.length)];
+                
+                // Move worm: tail -> body -> head -> new position
+                const oldTail = { ...worm.tail };
+                const oldBody = { ...worm.body };
+                const oldHead = { ...worm.head };
+                
+                // Clear old positions
+                grid[oldTail.y][oldTail.x] = EMPTY;
+                grid[oldBody.y][oldBody.x] = EMPTY;
+                grid[oldHead.y][oldHead.x] = EMPTY;
+                inchwormLifeGrid[oldTail.y][oldTail.x] = 0;
+                inchwormLifeGrid[oldBody.y][oldBody.x] = 0;
+                inchwormLifeGrid[oldHead.y][oldHead.x] = 0;
+                
+                // Update worm position
+                worm.tail = oldBody;
+                worm.body = oldHead;
+                worm.head = move;
+                
+                // Place in new positions
+                grid[worm.tail.y][worm.tail.x] = INCHWORM;
+                grid[worm.body.y][worm.body.x] = INCHWORM_BODY;
+                grid[worm.head.y][worm.head.x] = INCHWORM_HEAD;
+                
+                inchwormLifeGrid[worm.tail.y][worm.tail.x] = worm.life;
+                inchwormLifeGrid[worm.body.y][worm.body.x] = worm.life;
+                inchwormLifeGrid[worm.head.y][worm.head.x] = worm.life;
+                
+                // If eating tree, don't place tree back
+                if (move.eatsTree) {
+                    // Tree is consumed
+                }
+            } else {
+                // No surface moves available, check if worm can fall
+                const fallMoves = [];
+                
+                // Check if head can fall down
+                if (worm.head.y < GRID_HEIGHT - 1) {
+                    const fallY = worm.head.y + 1;
+                    const targetCell = grid[fallY][worm.head.x];
+                    
+                    if (targetCell === EMPTY || targetCell === TREE) {
+                        fallMoves.push({ 
+                            x: worm.head.x, 
+                            y: fallY, 
+                            eatsTree: targetCell === TREE 
+                        });
+                    }
+                }
+                
+                if (fallMoves.length > 0) {
+                    const move = fallMoves[0]; // Only one fall option
+                    
+                    // Move worm: tail -> body -> head -> new position (falling)
+                    const oldTail = { ...worm.tail };
+                    const oldBody = { ...worm.body };
+                    const oldHead = { ...worm.head };
+                    
+                    // Clear old positions
+                    grid[oldTail.y][oldTail.x] = EMPTY;
+                    grid[oldBody.y][oldBody.x] = EMPTY;
+                    grid[oldHead.y][oldHead.x] = EMPTY;
+                    inchwormLifeGrid[oldTail.y][oldTail.x] = 0;
+                    inchwormLifeGrid[oldBody.y][oldBody.x] = 0;
+                    inchwormLifeGrid[oldHead.y][oldHead.x] = 0;
+                    
+                    // Update worm position
+                    worm.tail = oldBody;
+                    worm.body = oldHead;
+                    worm.head = move;
+                    
+                    // Place in new positions
+                    grid[worm.tail.y][worm.tail.x] = INCHWORM;
+                    grid[worm.body.y][worm.body.x] = INCHWORM_BODY;
+                    grid[worm.head.y][worm.head.x] = INCHWORM_HEAD;
+                    
+                    inchwormLifeGrid[worm.tail.y][worm.tail.x] = worm.life;
+                    inchwormLifeGrid[worm.body.y][worm.body.x] = worm.life;
+                    inchwormLifeGrid[worm.head.y][worm.head.x] = worm.life;
+                    
+                    // If eating tree while falling, don't place tree back
+                    if (move.eatsTree) {
+                        // Tree is consumed
+                    }
+                }
+                // If no fall moves available either, worm stays in place
+            }
+        }
+        
+        function hasValidSurface(x, y) {
+            // Check if position touches solid surface
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const sx = x + dx;
+                    const sy = y + dy;
+                    if (isValidPos(sx, sy)) {
+                        const cell = grid[sy][sx];
+                        if (cell === SAND || cell === DIRT || cell === GLASS || 
+                            cell === TREE || cell === DEAD_TREE) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // Tree behavior functions
+        function findNearestWater(x, y, maxDistance = 15) {
+            let nearest = null;
+            let minDistance = Infinity;
+            
+            for (let checkY = Math.max(0, y - maxDistance); checkY < Math.min(GRID_HEIGHT, y + maxDistance + 1); checkY++) {
+                for (let checkX = Math.max(0, x - maxDistance); checkX < Math.min(GRID_WIDTH, x + maxDistance + 1); checkX++) {
+                    if (grid[checkY][checkX] === WATER) {
+                        // Use squared distance to avoid expensive sqrt calculation
+                        const distanceSquared = (checkX - x) * (checkX - x) + (checkY - y) * (checkY - y);
+                        if (distanceSquared < minDistance) {
+                            minDistance = distanceSquared;
+                            nearest = { x: checkX, y: checkY, distance: Math.sqrt(distanceSquared) };
+                        }
+                    }
+                }
+            }
+            
+            return nearest;
+        }
+        
+        function countNearbyTrees(x, y, radius = 3) {
+            let count = 0;
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    // Only count living trees, not dead trees
+                    if (isValidPos(nx, ny) && grid[ny][nx] === TREE) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+        
+        function countConnectedPixels(startX, startY, material, grid) {
+            // Use flood fill to count connected pixels of the same material
+            const visited = new Set();
+            const stack = [{ x: startX, y: startY }];
+            let count = 0;
+            
+            while (stack.length > 0) {
+                const { x, y } = stack.pop();
+                const key = `${x},${y}`;
+                
+                if (visited.has(key) || !isValidPos(x, y) || grid[y][x] !== material) {
+                    continue;
+                }
+                
+                visited.add(key);
+                count++;
+                
+                // Add adjacent cells to stack
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        stack.push({ x: x + dx, y: y + dy });
+                    }
+                }
+                
+                // Limit flood fill to prevent performance issues
+                if (count > 50) break;
+            }
+            
+            return count;
+        }
+        
+        function updateTreeDecomposition() {
+            // Process decomposition every frame
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    if (grid[y][x] === DEAD_TREE && treeDecompositionGrid[y][x] > 0) {
+                        treeDecompositionGrid[y][x]--;
+                        
+                        // Convert to dirt when decomposition is complete
+                        if (treeDecompositionGrid[y][x] <= 0) {
+                            grid[y][x] = DIRT;
+                        }
+                    }
+                }
+            }
+        }
+        
+        function updateTreeBehavior() {
+            // Only update trees every 30 frames for performance
+            if (treeUpdateCounter % 30 !== 0) return;
+            
+            const treesToProcess = [];
+            
+            // Find all tree positions
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    if (grid[y][x] === TREE) {
+                        treesToProcess.push({ x, y });
+                    }
+                }
+            }
+            
+            // Process each tree
+            for (const tree of treesToProcess) {
+                const waterInfo = findNearestWater(tree.x, tree.y);
+                const nearbyTreeCount = countNearbyTrees(tree.x, tree.y);
+                
+                // Trees die only if isolated (1 neighbor) AND network lacks water access
+                let adjacentTreeCount = 0;
+                const adjacentTrees = [];
+                
+                // Count directly adjacent trees (1-pixel radius)
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = tree.x + dx;
+                        const ny = tree.y + dy;
+                        if (isValidPos(nx, ny) && grid[ny][nx] === TREE) {
+                            adjacentTreeCount++;
+                            adjacentTrees.push({ x: nx, y: ny });
+                        }
+                    }
+                }
+                
+                // Consider death if tree is isolated (0 neighbors) or end of branch (1 neighbor)
+                if (adjacentTreeCount <= 1) {
+                    // Check if this tree or its network has water access
+                    let networkHasWater = false;
+                    
+                    // Check if this tree has water access
+                    if (waterInfo && waterInfo.distance <= 15) {
+                        networkHasWater = true;
+                    }
+                    
+                    // If has a neighbor, check if that neighbor has water access
+                    if (!networkHasWater && adjacentTrees.length > 0) {
+                        const neighbor = adjacentTrees[0];
+                        const neighborWater = findNearestWater(neighbor.x, neighbor.y);
+                        if (neighborWater && neighborWater.distance <= 15) {
+                            networkHasWater = true;
+                        }
+                    }
+                    
+                    // Death rates: isolated trees (0 neighbors) die faster than end branches (1 neighbor)
+                    const deathChance = adjacentTreeCount === 0 ? 0.08 : 0.03; // 8% for isolated, 3% for end branches
+                    
+                    // Only die if isolated/end branch AND no water access in local network
+                    if (!networkHasWater && Math.random() < deathChance) {
+                        grid[tree.y][tree.x] = DEAD_TREE;
+                        treeDecompositionGrid[tree.y][tree.x] = 180;
+                        continue;
+                    }
+                }
+                
+                // Determine growth behavior based on clustering
+                const isClustered = nearbyTreeCount >= 3;
+                const growthChance = isClustered ? 0.12 : 0.08; // Higher chance when clustered
+                
+                // Trees grow toward water or branch when clustered
+                if (waterInfo && waterInfo.distance <= 8 && Math.random() < growthChance) {
+                    const dx = waterInfo.x - tree.x;
+                    const dy = waterInfo.y - tree.y;
+                    
+                    // Normalize direction
+                    const dirX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+                    const dirY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+                    
+                    const candidates = [];
+                    
+                    if (isClustered) {
+                        // When clustered, prefer branching in multiple directions
+                        // Add perpendicular directions to main growth
+                        if (dirX !== 0) {
+                            candidates.push({ x: tree.x, y: tree.y - 1 }); // Up
+                            candidates.push({ x: tree.x, y: tree.y + 1 }); // Down
+                        }
+                        if (dirY !== 0) {
+                            candidates.push({ x: tree.x - 1, y: tree.y }); // Left
+                            candidates.push({ x: tree.x + 1, y: tree.y }); // Right
+                        }
+                        
+                        // Also add diagonal branching
+                        candidates.push({ x: tree.x + dirX, y: tree.y - 1 });
+                        candidates.push({ x: tree.x + dirX, y: tree.y + 1 });
+                        candidates.push({ x: tree.x - dirX, y: tree.y - 1 });
+                        candidates.push({ x: tree.x - dirX, y: tree.y + 1 });
+                        
+                        // Still include main direction but with lower priority
+                        if (dirX !== 0) candidates.push({ x: tree.x + dirX, y: tree.y });
+                        if (dirY !== 0) candidates.push({ x: tree.x, y: tree.y + dirY });
+                    } else {
+                        // When not clustered, prefer growing toward water
+                        if (dirX !== 0) candidates.push({ x: tree.x + dirX, y: tree.y });
+                        if (dirY !== 0) candidates.push({ x: tree.x, y: tree.y + dirY });
+                        
+                        // Add adjacent empty spaces as backup
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                candidates.push({ x: tree.x + dx, y: tree.y + dy });
+                            }
+                        }
+                    }
+                    
+                    // Shuffle candidates for randomness
+                    for (let i = candidates.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+                    }
+                    
+                    // Try to grow to candidate positions
+                    let grownCount = 0;
+                    const maxGrowth = isClustered ? (Math.random() < 0.3 ? 2 : 1) : 1; // Sometimes branch twice when clustered
+                    
+                    for (const candidate of candidates) {
+                        if (grownCount >= maxGrowth) break;
+                        
+                        if (isValidPos(candidate.x, candidate.y)) {
+                            const targetCell = grid[candidate.y][candidate.x];
+                            
+                            // Trees can grow into empty space or through dirt, but not through glass
+                            if ((targetCell === EMPTY || targetCell === DIRT) && targetCell !== GLASS) {
+                                // Check if this position isn't too crowded
+                                const nearbyAtCandidate = countNearbyTrees(candidate.x, candidate.y, 2);
+                                if (nearbyAtCandidate < 8) { // Prevent overcrowding (reduced from 6 to allow denser growth)
+                                    // Only check for glass adjacency, not tree adjacency
+                                    let hasAdjacentGlass = false;
+                                    for (let checkDy = -1; checkDy <= 1; checkDy++) {
+                                        for (let checkDx = -1; checkDx <= 1; checkDx++) {
+                                            const adjX = candidate.x + checkDx;
+                                            const adjY = candidate.y + checkDy;
+                                            if (isValidPos(adjX, adjY) && grid[adjY][adjX] === GLASS) {
+                                                hasAdjacentGlass = true;
+                                                break;
+                                            }
+                                        }
+                                        if (hasAdjacentGlass) break;
+                                    }
+                                    
+                                    if (!hasAdjacentGlass) {
+                                        grid[candidate.y][candidate.x] = TREE;
+                                        grownCount++;
+                                    }
+                                    
+                                    // If growing through dirt, increase growth chance slightly (nutrient bonus)
+                                    if (targetCell === DIRT && Math.random() < 0.2 && grownCount < maxGrowth) {
+                                        // Bonus growth chance when consuming dirt
+                                        continue; // Try to grow one more time
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        function updateSimulation() {
+            if (isPaused) return;
+            
+            // Continuous material placement while mouse is held down
+            if (isMouseDown && isValidPos(mouseX, mouseY)) {
+                // Add material every few frames for continuous flow
+                if (treeUpdateCounter % 1 === 0) { // Every 3 frames
+                    addMaterial(mouseX, mouseY, selectedMaterial);
+                }
+            }
+            
+            // Process generators - add material continuously
+            generators.forEach(generator => {
+                if (treeUpdateCounter % 3 === 0) { // Every 3 frames for slower generation
+                    addMaterial(generator.x, generator.y, generator.material, generator.radius);
+                }
+            });
+            
+            // Increment tree update counter
+            treeUpdateCounter++;
+            
+            // Process tree growth (fractal growth) - DISABLED during grid processing
+            // This will be handled after the new grid is created
+            
+            // Process tree behavior (movement toward water, death)
+            updateTreeBehavior();
+            
+            // Process worm behavior
+            updateWorms();
+            
+            // Process tree decomposition
+            updateTreeDecomposition();
+            
+            // Get the alternate grid set and clear it for next frame
+            let newGrid, newFireLifeGrid, newSteamLifeGrid, newAcidLifeGrid, newLavaLifeGrid, newInchwormLifeGrid;
+            
+            if (currentGridSet === 'A') {
+                newGrid = gridB;
+                newFireLifeGrid = fireLifeGridB;
+                newSteamLifeGrid = steamLifeGridB;
+                newAcidLifeGrid = acidLifeGridB;
+                newLavaLifeGrid = lavaLifeGridB;
+                newInchwormLifeGrid = inchwormLifeGridB;
+            } else {
+                newGrid = gridA;
+                newFireLifeGrid = fireLifeGridA;
+                newSteamLifeGrid = steamLifeGridA;
+                newAcidLifeGrid = acidLifeGridA;
+                newLavaLifeGrid = lavaLifeGridA;
+                newInchwormLifeGrid = inchwormLifeGridA;
+            }
+            
+            // Clear the grids
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                newGrid[y].fill(EMPTY);
+                newFireLifeGrid[y].fill(0);
+                newSteamLifeGrid[y].fill(0);
+                newAcidLifeGrid[y].fill(0);
+                newLavaLifeGrid[y].fill(0);
+                newInchwormLifeGrid[y].fill(0);
+            }
+            
+            // Process from bottom to top, left to right
+            for (let y = GRID_HEIGHT - 1; y >= 0; y--) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    const cell = grid[y][x];
+                    
+                    if (cell === EMPTY) continue;
+                    
+                    // Try to move particle
+                    let destX = x, destY = y;
+                    
+                    // Only isolated tree pixels fall (not connected forest structures)
+                    if (cell === TREE && y < GRID_HEIGHT - 1) {
+                        // Count adjacent trees to determine if truly isolated
+                        let adjacentTreeCount = 0;
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && grid[ny][nx] === TREE) {
+                                    adjacentTreeCount++;
+                                }
+                            }
+                        }
+                        
+                        // Only isolated tree pixels (0 neighbors) fall
+                        if (adjacentTreeCount === 0 && grid[y + 1][x] === EMPTY && Math.random() < 0.5) {
+                            // Isolated tree pixel falls down
+                            destY = y + 1;
+                        }
+                        // Try diagonal fall for isolated trees
+                        else if (adjacentTreeCount === 0 && Math.random() < 0.3) {
+                            const leftDiag = x > 0 ? grid[y + 1][x - 1] : null;
+                            const rightDiag = x < GRID_WIDTH - 1 ? grid[y + 1][x + 1] : null;
+                            
+                            if (leftDiag === EMPTY && rightDiag === EMPTY) {
+                                const dir = Math.random() < 0.5 ? -1 : 1;
+                                destX = x + dir;
+                                destY = y + 1;
+                            } else if (leftDiag === EMPTY) {
+                                destX = x - 1;
+                                destY = y + 1;
+                            } else if (rightDiag === EMPTY) {
+                                destX = x + 1;
+                                destY = y + 1;
+                            }
+                        }
+                    }
+                    
+                    // Individual worm parts don't move on their own - handled by updateWorms()
+                    else if (cell === INCHWORM || cell === INCHWORM_HEAD || cell === INCHWORM_BODY) {
+                        // Worm parts are moved by the worm system, just copy them
+                        // Individual parts don't have independent physics
+                    }
+                    
+                    // Handle falling for falling materials
+                    else if (y < GRID_HEIGHT - 1 && (cell === SAND || cell === DIRT || cell === WATER || cell === ACID || cell === LAVA)) {
+                        // Water + dirt interaction
+                        if (cell === WATER && grid[y + 1][x] === DIRT && Math.random() < 0.02) {
+                            // Check if growth path is clear (no glass blocking upward growth)
+                            if (y > 0 && grid[y - 1][x] !== GLASS) {
+                                // Water hits dirt - both become tree
+                                newGrid[y + 1][x] = TREE;
+                                startTreeGrowth(x, y);
+                                continue; // Water is consumed
+                            }
+                        }
+                        
+                        // Check if can fall down (water falls faster by skipping multiple cells)
+                        if (cell === WATER && grid[y + 1][x] === EMPTY) {
+                            // Water tries to fall multiple cells at once
+                            let fallDistance = 1;
+                            while (y + fallDistance + 1 < GRID_HEIGHT && 
+                                   grid[y + fallDistance + 1][x] === EMPTY && 
+                                   fallDistance < 3) { // Max fall distance of 3
+                                fallDistance++;
+                            }
+                            destY = y + fallDistance;
+                        }
+                        else if (grid[y + 1][x] === EMPTY) {
+                            destY = y + 1;
+                        }
+                        // Sand and dirt sink through water (density-based)
+                        else if ((cell === SAND || cell === DIRT) && grid[y + 1][x] === WATER) {
+                            destY = y + 1;
+                        }
+                        // Try diagonal fall for all falling materials including water
+                        else if ((cell === SAND || cell === DIRT || cell === WATER || cell === LAVA || cell === ACID) && Math.random() < 0.7) {
+                            const leftDiag = x > 0 ? grid[y + 1][x - 1] : null;
+                            const rightDiag = x < GRID_WIDTH - 1 ? grid[y + 1][x + 1] : null;
+                            
+                            // Check what can fall diagonally
+                            const canFallLeft = leftDiag === EMPTY || 
+                                ((cell === SAND || cell === DIRT) && leftDiag === WATER);
+                            const canFallRight = rightDiag === EMPTY || 
+                                ((cell === SAND || cell === DIRT) && rightDiag === WATER);
+                            
+                            if (canFallLeft && canFallRight) {
+                                const dir = Math.random() < 0.5 ? -1 : 1;
+                                destX = x + dir;
+                                destY = y + 1;
+                            } else if (canFallLeft) {
+                                destX = x - 1;
+                                destY = y + 1;
+                            } else if (canFallRight) {
+                                destX = x + 1;
+                                destY = y + 1;
+                            }
+                        }
+                        // Water horizontal flow when blocked (faster spreading)
+                        else if (cell === WATER && Math.random() < 0.8) { // Increased from 0.4 to 0.8
+                            // Water spreads multiple cells horizontally
+                            const directions = [];
+                            if (x > 0 && grid[y][x - 1] === EMPTY) directions.push(-1);
+                            if (x < GRID_WIDTH - 1 && grid[y][x + 1] === EMPTY) directions.push(1);
+                            
+                            if (directions.length > 0) {
+                                const dir = directions[Math.floor(Math.random() * directions.length)];
+                                let spreadDistance = 1;
+                                
+                                // Try to spread multiple cells at once
+                                while (x + (dir * (spreadDistance + 1)) >= 0 && 
+                                       x + (dir * (spreadDistance + 1)) < GRID_WIDTH &&
+                                       grid[y][x + (dir * (spreadDistance + 1))] === EMPTY && 
+                                       spreadDistance < 2) { // Max spread distance of 2
+                                    spreadDistance++;
+                                }
+                                destX = x + (dir * spreadDistance);
+                            }
+                        }
+                        // Lava horizontal flow (slower than water)
+                        else if (cell === LAVA && Math.random() < 0.3) {
+                            if (x > 0 && grid[y][x - 1] === EMPTY && Math.random() < 0.5) {
+                                destX = x - 1;
+                            } else if (x < GRID_WIDTH - 1 && grid[y][x + 1] === EMPTY) {
+                                destX = x + 1;
+                            }
+                        }
+                        // Acid horizontal flow (original behavior)
+                        else if (cell === ACID && Math.random() < 0.4) {
+                            if (x > 0 && grid[y][x - 1] === EMPTY && Math.random() < 0.5) {
+                                destX = x - 1;
+                            } else if (x < GRID_WIDTH - 1 && grid[y][x + 1] === EMPTY) {
+                                destX = x + 1;
+                            }
+                        }
+                    }
+                    
+                    // Steam rises
+                    else if (cell === STEAM && y > 0 && Math.random() < 0.4) {
+                        if (grid[y - 1][x] === EMPTY) {
+                            destY = y - 1;
+                            
+                            // Steam also moves horizontally while rising if on glass surface
+                            // Check if standing on glass
+                            if (y < GRID_HEIGHT - 1 && grid[y + 1][x] === GLASS && Math.random() < 0.5) {
+                                // Try to move horizontally while rising
+                                const directions = [];
+                                if (x > 0 && grid[y - 1][x - 1] === EMPTY) directions.push(-1);
+                                if (x < GRID_WIDTH - 1 && grid[y - 1][x + 1] === EMPTY) directions.push(1);
+                                
+                                if (directions.length > 0) {
+                                    const dir = directions[Math.floor(Math.random() * directions.length)];
+                                    destX = x + dir;
+                                }
+                            }
+                        }
+                        // Steam spreads sideways if can't rise
+                        else if (Math.random() < 0.3) {
+                            if (x > 0 && grid[y][x - 1] === EMPTY && Math.random() < 0.5) {
+                                destX = x - 1;
+                            } else if (x < GRID_WIDTH - 1 && grid[y][x + 1] === EMPTY) {
+                                destX = x + 1;
+                            }
+                        }
+                    }
+                    
+                    // Fire rises slightly
+                    else if (cell === FIRE && y > 0 && Math.random() < 0.1) {
+                        if (grid[y - 1][x] === EMPTY) {
+                            destY = y - 1;
+                        }
+                    }
+                    
+                    // Place particle in destination
+                    const destContent = newGrid[destY][destX];
+                    
+                    // Check if can displace what's at destination
+                    const canDisplace = destContent === EMPTY || 
+                        ((cell === SAND || cell === DIRT) && destContent === WATER);
+                    
+                    if (canDisplace) {
+                        newGrid[destY][destX] = cell;
+                        
+                        // If displacing water, place it at original position
+                        if (destContent === WATER && newGrid[y][x] === EMPTY) {
+                            newGrid[y][x] = WATER;
+                        }
+                        
+                        // Copy life values
+                        if (cell === FIRE) {
+                            const newLife = Math.max(0, fireLifeGrid[y][x] - 1);
+                            if (newLife > 0) {
+                                newFireLifeGrid[destY][destX] = newLife;
+                            } else {
+                                newGrid[destY][destX] = EMPTY; // Fire dies
+                            }
+                        } else if (cell === STEAM) {
+                            const newLife = Math.max(0, steamLifeGrid[y][x] - 1);
+                            if (newLife > 0) {
+                                newSteamLifeGrid[destY][destX] = newLife;
+                            } else {
+                                newGrid[destY][destX] = EMPTY; // Steam dissipates
+                            }
+                        } else if (cell === ACID) {
+                            const newLife = Math.max(0, acidLifeGrid[y][x] - 1);
+                            if (newLife > 0) {
+                                newAcidLifeGrid[destY][destX] = newLife;
+                            } else {
+                                newGrid[destY][destX] = EMPTY; // Acid evaporates
+                            }
+                        } else if (cell === INCHWORM || cell === INCHWORM_HEAD || cell === INCHWORM_BODY) {
+                            // Worm parts don't age individually - handled by worm system
+                            newInchwormLifeGrid[destY][destX] = inchwormLifeGrid[y][x];
+                        }
+                    } else {
+                        // Can't displace, try to place in original position
+                        if (newGrid[y][x] === EMPTY) {
+                            newGrid[y][x] = cell;
+                            // Copy life values to original position
+                            if (cell === FIRE) newFireLifeGrid[y][x] = fireLifeGrid[y][x];
+                            if (cell === STEAM) newSteamLifeGrid[y][x] = steamLifeGrid[y][x];
+                            if (cell === ACID) newAcidLifeGrid[y][x] = acidLifeGrid[y][x];
+                            if (cell === INCHWORM || cell === INCHWORM_HEAD || cell === INCHWORM_BODY) {
+                                newInchwormLifeGrid[y][x] = inchwormLifeGrid[y][x];
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Second pass: Handle interactions and transformations
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    const cell = newGrid[y][x];
+                    
+                    // Fire interactions
+                    if (cell === FIRE) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny)) {
+                                    const neighbor = newGrid[ny][nx];
+                                    
+                                    // Fire spreads to flammable materials (trees and dead trees)
+                                    if (materials[neighbor]?.flammable && Math.random() < 0.05) {
+                                        newGrid[ny][nx] = FIRE;
+                                        newFireLifeGrid[ny][nx] = materials[FIRE].life;
+                                        // Clear decomposition timer if burning dead tree
+                                        if (neighbor === DEAD_TREE) {
+                                            treeDecompositionGrid[ny][nx] = 0;
+                                        }
+                                        
+                                        // Create steam when plants burn (moisture release)
+                                        if (neighbor === TREE || neighbor === DEAD_TREE) {
+                                            // Try to place steam in nearby empty spaces
+                                            let steamCreated = false;
+                                            for (let steamDy = -1; steamDy <= 1 && !steamCreated; steamDy++) {
+                                                for (let steamDx = -1; steamDx <= 1 && !steamCreated; steamDx++) {
+                                                    const steamX = nx + steamDx;
+                                                    const steamY = ny + steamDy;
+                                                    if (isValidPos(steamX, steamY) && 
+                                                        newGrid[steamY][steamX] === EMPTY && 
+                                                        Math.random() < 0.3) {
+                                                        newGrid[steamY][steamX] = STEAM;
+                                                        newSteamLifeGrid[steamY][steamX] = materials[STEAM].life;
+                                                        steamCreated = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Fire turns sand to glass
+                                    else if (neighbor === SAND && Math.random() < 0.02) {
+                                        newGrid[ny][nx] = GLASS;
+                                    }
+                                    // Fire turns water to steam
+                                    else if (neighbor === WATER && Math.random() < 0.08) {
+                                        newGrid[ny][nx] = STEAM;
+                                        newSteamLifeGrid[ny][nx] = materials[STEAM].life;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Water interactions
+                    else if (cell === WATER) {
+                        // Water extinguishes fire
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && newGrid[ny][nx] === FIRE && Math.random() < 0.3) {
+                                    newGrid[ny][nx] = EMPTY;
+                                    newFireLifeGrid[ny][nx] = 0;
+                                }
+                            }
+                        }
+                        
+                        // Water neutralizes acid - acid becomes water
+                        //for (let dy = -1; dy <= 1; dy++) {
+                        //    for (let dx = -1; dx <= 1; dx++) {
+                        //        const nx = x + dx;
+                        //        const ny = y + dy;
+                        //        if (isValidPos(nx, ny) && newGrid[ny][nx] === ACID && Math.random() < 0.3) {
+                        //            // Acid becomes water when touching water
+                        //            newGrid[ny][nx] = WATER;
+                        //            newAcidLifeGrid[ny][nx] = 0;
+                        //        }
+                        //    }
+                        //}
+                        
+                        // Already handled in dirt interactions below
+                    }
+                    
+                    // Dirt interactions
+                    else if (cell === DIRT) {
+                        // Check for neighboring water to sprout trees
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue; // Skip self
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && newGrid[ny][nx] === WATER && Math.random() < 0.008) {
+                                    // Check if growth path is clear (no glass blocking upward growth)
+                                    const growthY = y - 1;
+                                    if (isValidPos(x, growthY) && newGrid[growthY][x] !== GLASS) {
+                                        // Convert dirt to tree and consume water
+                                        newGrid[y][x] = TREE;
+                                        newGrid[ny][nx] = EMPTY; // Consume the water
+                                        startTreeGrowth(x, growthY); // Start fractal growth upward
+                                        
+                                        break; // Only one tree per dirt particle
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    
+                    // Water, dirt, and tree interactions (inchworm spawning)
+                    else if (cell === WATER || cell === DIRT || cell === TREE) {
+                        // Check if water, dirt, and tree are all touching
+                        let hasWater = false, hasDirt = false, hasTree = false;
+                        
+                        // Check adjacent cells for the other two materials
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny)) {
+                                    const neighbor = newGrid[ny][nx];
+                                    if (neighbor === WATER) hasWater = true;
+                                    if (neighbor === DIRT) hasDirt = true;
+                                    if (neighbor === TREE) hasTree = true;
+                                }
+                            }
+                        }
+                        
+                        // Only proceed if all three materials are touching
+                        if (hasWater && hasDirt && hasTree) {
+                            // Count connected pixels of current material type using flood fill
+                            const connectedCount = countConnectedPixels(x, y, cell, newGrid);
+                            
+                            // Spawn inchworm if more than 4 connected pixels of this type
+                            if (connectedCount > 4 && Math.random() < 0.005) {
+                                // Find an empty adjacent spot to spawn inchworm
+                                const spawnCandidates = [];
+                                for (let dy = -1; dy <= 1; dy++) {
+                                    for (let dx = -1; dx <= 1; dx++) {
+                                        if (dx === 0 && dy === 0) continue;
+                                        const nx = x + dx;
+                                        const ny = y + dy;
+                                        if (isValidPos(nx, ny) && newGrid[ny][nx] === EMPTY) {
+                                            spawnCandidates.push({ x: nx, y: ny });
+                                        }
+                                    }
+                                }
+                                
+                                if (spawnCandidates.length >= 3) {
+                                    // Spawn a 3-pixel worm
+                                    spawnThreePixelWorm(spawnCandidates, newGrid, newInchwormLifeGrid);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Steam interactions
+                    else if (cell === STEAM) {
+                        // Steam condenses to water when touching glass
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && newGrid[ny][nx] === GLASS && Math.random() < 0.15) {
+                                    // Convert steam to water
+                                    newGrid[y][x] = WATER;
+                                    newSteamLifeGrid[y][x] = 0; // Clear steam life
+                                    break; // Only one conversion per steam particle
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Acid interactions
+                    else if (cell === ACID) {
+                        // Acid corrodes neighboring materials
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny) && Math.random() < 0.03) {
+                                    const neighbor = newGrid[ny][nx];
+                                    // Acid dissolves most materials except glass and fire
+                                    if (neighbor !== EMPTY && neighbor !== ACID && neighbor !== GLASS && neighbor !== FIRE) {
+                                        newGrid[ny][nx] = EMPTY;
+                                        // Clear life grids for dissolved materials
+                                        if (neighbor === FIRE) newFireLifeGrid[ny][nx] = 0;
+                                        if (neighbor === STEAM) newSteamLifeGrid[ny][nx] = 0;
+                                        if (neighbor === ACID) newAcidLifeGrid[ny][nx] = 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Lava interactions
+                    else if (cell === LAVA) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                if (isValidPos(nx, ny)) {
+                                    const neighbor = newGrid[ny][nx];
+                                    
+                                    // Lava burns flammable materials
+                                    if (materials[neighbor]?.flammable && Math.random() < 0.1) {
+                                        newGrid[ny][nx] = FIRE;
+                                        newFireLifeGrid[ny][nx] = materials[FIRE].life;
+                                        if (neighbor === DEAD_TREE) {
+                                            treeDecompositionGrid[ny][nx] = 0;
+                                        }
+                                    }
+                                    // Lava turns water to steam instantly
+                                    else if (neighbor === WATER && Math.random() < 0.2) {
+                                        newGrid[ny][nx] = STEAM;
+                                        newSteamLifeGrid[ny][nx] = materials[STEAM].life;
+                                    }
+                                    // Lava melts sand to glass
+                                    else if (neighbor === SAND && Math.random() < 0.05) {
+                                        newGrid[ny][nx] = GLASS;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Swap to the new grid set
+            grid = newGrid;
+            fireLifeGrid = newFireLifeGrid;
+            steamLifeGrid = newSteamLifeGrid;
+            acidLifeGrid = newAcidLifeGrid;
+            lavaLifeGrid = newLavaLifeGrid;
+            inchwormLifeGrid = newInchwormLifeGrid;
+            
+            // Toggle the current grid set
+            currentGridSet = currentGridSet === 'A' ? 'B' : 'A';
+            
+            // Process fractal tree growth
+            const fractalGrid = grid.map(row => [...row]);
+            
+            for (let i = treeGrowthQueue.length - 1; i >= 0; i--) {
+                const treeNode = treeGrowthQueue[i];
+                if (!growFractalTree(treeNode, fractalGrid)) {
+                    treeGrowthQueue.splice(i, 1);
+                }
+            }
+            
+            // Copy fractal results back to main grid
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    if (fractalGrid[y][x] === TREE && grid[y][x] === EMPTY) {
+                        grid[y][x] = TREE;
+                    }
+                }
+            }
+            
+        }
+        
+        function renderGrid() {
+            // Clear image data
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                imageData.data[i] = 0;     // R
+                imageData.data[i + 1] = 0; // G
+                imageData.data[i + 2] = 0; // B
+                imageData.data[i + 3] = 255; // A
+            }
+            
+            // Draw grid to image data
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    const cell = grid[y][x];
+                    if (cell !== EMPTY) {
+                        const index = (y * GRID_WIDTH + x) * 4;
+                        let color = getRandomColor(cell);
+                        
+                        // Modify fire color based on life
+                        if (cell === FIRE) {
+                            const lifeRatio = fireLifeGrid[y][x] / materials[FIRE].life;
+                            color = [
+                                Math.floor(color[0] * lifeRatio),
+                                Math.floor(color[1] * lifeRatio),
+                                Math.floor(color[2] * lifeRatio),
+                                255
+                            ];
+                        }
+                        // Modify steam opacity based on life
+                        else if (cell === STEAM) {
+                            const lifeRatio = steamLifeGrid[y][x] / materials[STEAM].life;
+                            color = [
+                                color[0],
+                                color[1],
+                                color[2],
+                                Math.floor(color[3] * lifeRatio)
+                            ];
+                        }
+                        // Modify acid intensity based on life
+                        else if (cell === ACID) {
+                            const lifeRatio = acidLifeGrid[y][x] / materials[ACID].life;
+                            color = [
+                                Math.floor(color[0] * lifeRatio),
+                                Math.floor(color[1] * lifeRatio),
+                                Math.floor(color[2] * lifeRatio),
+                                255
+                            ];
+                        }
+                        
+                        imageData.data[index] = color[0];     // R
+                        imageData.data[index + 1] = color[1]; // G
+                        imageData.data[index + 2] = color[2]; // B
+                        imageData.data[index + 3] = color[3]; // A
+                    }
+                }
+            }
+            
+            // Use reusable temporary canvas for the pixel data
+            tempCtx.putImageData(imageData, 0, 0);
+            
+            // Scale up to main canvas
+            ctx.imageSmoothingEnabled = false;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(tempCanvas, 0, 0, GRID_WIDTH, GRID_HEIGHT, 0, 0, canvas.width, canvas.height);
+            
+            // Draw generator indicators on top (only when hovering)
+            generators.forEach(generator => {
+                // Check if mouse is hovering over this generator
+                const isHovering = Math.abs(mouseX - generator.x) <= generator.radius + 1 && 
+                                 Math.abs(mouseY - generator.y) <= generator.radius + 1;
+                
+                if (isHovering) {
+                    const screenX = generator.x * CELL_SIZE;
+                    const screenY = generator.y * CELL_SIZE;
+                    
+                    // Draw a pulsing border around generators
+                    const pulse = Math.sin(Date.now() * 0.005) * 0.5 + 0.5; // 0 to 1
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + pulse * 0.5})`;
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(
+                        screenX - generator.radius * CELL_SIZE, 
+                        screenY - generator.radius * CELL_SIZE,
+                        (generator.radius * 2 + 1) * CELL_SIZE,
+                        (generator.radius * 2 + 1) * CELL_SIZE
+                    );
+                }
+            });
+        }
+        
+        function clearGrid() {
+            initializeGrids();
+            treeGrowthQueue = [];
+            generators = [];
+            treeUpdateCounter = 0;
+        }
+        
+        function resizeCanvas() {
+            const newGridWidth = Math.floor(window.innerWidth / CELL_SIZE);
+            const newGridHeight = Math.floor(window.innerHeight / CELL_SIZE);
+            
+            // Only resize if dimensions actually changed
+            if (newGridWidth !== GRID_WIDTH || newGridHeight !== GRID_HEIGHT) {
+                // Store old grid data
+                const oldGrid = grid;
+                const oldFireLife = fireLifeGrid;
+                const oldSteamLife = steamLifeGrid;
+                const oldAcidLife = acidLifeGrid;
+                const oldLavaLife = lavaLifeGrid;
+                const oldInchwormLife = inchwormLifeGrid;
+                const oldTreeDecomp = treeDecompositionGrid;
+                const oldColorCache = colorCache;
+                const oldWidth = GRID_WIDTH;
+                const oldHeight = GRID_HEIGHT;
+                
+                // Update dimensions
+                GRID_WIDTH = newGridWidth;
+                GRID_HEIGHT = newGridHeight;
+                canvas.width = GRID_WIDTH * CELL_SIZE;
+                canvas.height = GRID_HEIGHT * CELL_SIZE;
+                
+                // Store current grid set before reinitializing
+                const oldCurrentGridSet = currentGridSet;
+                
+                // Initialize new grids
+                initializeGrids();
+                
+                // Restore the current grid set
+                currentGridSet = oldCurrentGridSet;
+                
+                // Copy over existing data if possible
+                if (oldGrid) {
+                    const copyWidth = Math.min(oldWidth, GRID_WIDTH);
+                    const copyHeight = Math.min(oldHeight, GRID_HEIGHT);
+                    
+                    for (let y = 0; y < copyHeight; y++) {
+                        for (let x = 0; x < copyWidth; x++) {
+                            // Copy to both grid sets to maintain double buffer consistency
+                            gridA[y][x] = oldGrid[y][x];
+                            gridB[y][x] = oldGrid[y][x];
+                            fireLifeGridA[y][x] = oldFireLife[y][x];
+                            fireLifeGridB[y][x] = oldFireLife[y][x];
+                            steamLifeGridA[y][x] = oldSteamLife[y][x];
+                            steamLifeGridB[y][x] = oldSteamLife[y][x];
+                            acidLifeGridA[y][x] = oldAcidLife[y][x];
+                            acidLifeGridB[y][x] = oldAcidLife[y][x];
+                            lavaLifeGridA[y][x] = oldLavaLife[y][x];
+                            lavaLifeGridB[y][x] = oldLavaLife[y][x];
+                            inchwormLifeGridA[y][x] = oldInchwormLife[y][x];
+                            inchwormLifeGridB[y][x] = oldInchwormLife[y][x];
+                            treeDecompositionGrid[y][x] = oldTreeDecomp[y][x];
+                            colorCache[y][x] = oldColorCache[y][x];
+                        }
+                    }
+                    
+                    // Set current grid pointers to the correct set
+                    if (currentGridSet === 'A') {
+                        grid = gridA;
+                        fireLifeGrid = fireLifeGridA;
+                        steamLifeGrid = steamLifeGridA;
+                        acidLifeGrid = acidLifeGridA;
+                        lavaLifeGrid = lavaLifeGridA;
+                        inchwormLifeGrid = inchwormLifeGridA;
+                    } else {
+                        grid = gridB;
+                        fireLifeGrid = fireLifeGridB;
+                        steamLifeGrid = steamLifeGridB;
+                        acidLifeGrid = acidLifeGridB;
+                        lavaLifeGrid = lavaLifeGridB;
+                        inchwormLifeGrid = inchwormLifeGridB;
+                    }
+                }
+            }
+        }
+        
+        function togglePause() {
+            isPaused = !isPaused;
+        }
+        
+        
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            const pos = getGridPos(e.clientX, e.clientY);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            addMaterial(mouseX, mouseY, selectedMaterial);
+        });
+        
+        canvas.addEventListener('dblclick', (e) => {
+            const pos = getGridPos(e.clientX, e.clientY);
+            
+            if (selectedMaterial === ERASER) {
+                // Remove generator at this position
+                generators = generators.filter(gen => 
+                    Math.abs(gen.x - pos.x) > 2 || Math.abs(gen.y - pos.y) > 2
+                );
+            } else {
+                // Add generator at this position
+                generators.push({
+                    x: pos.x,
+                    y: pos.y,
+                    material: selectedMaterial,
+                    radius: 2
+                });
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            const pos = getGridPos(e.clientX, e.clientY);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            if (isMouseDown) {
+                addMaterial(mouseX, mouseY, selectedMaterial);
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            isMouseDown = false;
+        });
+        
+        // Touch events for mobile support
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent scrolling and other default behaviors
+            isMouseDown = true;
+            const touch = e.touches[0];
+            const pos = getGridPos(touch.clientX, touch.clientY);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            addMaterial(mouseX, mouseY, selectedMaterial);
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault(); // Prevent scrolling
+            const touch = e.touches[0];
+            const pos = getGridPos(touch.clientX, touch.clientY);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            if (isMouseDown) {
+                addMaterial(mouseX, mouseY, selectedMaterial);
+            }
+        });
+        
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            isMouseDown = false;
+        });
+        
+        canvas.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            isMouseDown = false;
+        });
+        
+        // Keyboard events
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                togglePause();
+            }
+        });
+        
+        // Window resize event
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Initial resize to set proper size
+        resizeCanvas();
+        
+        // Main game loop
+        function gameLoop() {
+            updateSimulation();
+            renderGrid();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Start the simulation
+        gameLoop();
+    </script>
+</body>
+</html>

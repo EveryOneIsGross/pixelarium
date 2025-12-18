@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>pixelarium</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000; 
+        }
+        canvas { 
+            display: block; 
+            image-rendering: pixelated;
+            width: 100vw;
+            height: 100dvh;
+            margin: 0 auto;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+            background: #333;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #555;
+        }
+        #swatch {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            flex-direction: row;
+            gap: 2px;
+            flex-wrap: wrap;
+            max-width: calc(100vw);
+        }
+        .material-btn {
+            width: 25px;
+            height: 25px;
+            border: 2px solid #666;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .material-btn.selected {
+            border-color: #fff;
+            box-shadow: 0 0 5px rgba(255,255,255,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="swatch">
+        <div class="material-btn" onclick="toggleMenu()" style="background: #555; color: #000;" id="menuToggle"></div>
+        <div class="material-btn toggleable selected" onclick="selectMaterial('SAND')" style="background: #dcb870; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('WATER')" style="background: #4a90e2; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('FIRE')" style="background: #ff6b35; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('DIRT')" style="background: #8b4513; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('TREE')" style="background: #228b22; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('GLASS')" style="background: #b4dcf0; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('STEAM')" style="background: #f0f0f0; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('ACID')" style="background: #32ff32; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('LAVA')" style="background: #ff4500; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('INCHWORM')" style="background: #ff69b4; color: #000;"></div>
+        <div class="material-btn toggleable" onclick="selectMaterial('ERASER')" style="background: #000; color: #fff;"></div>
+        <div class="material-btn toggleable" onclick="clearGrid()" style="background: #666; color: #fff;">↺</div>
+        <div class="material-btn toggleable" onclick="togglePause()" style="background: #666; color: #fff;">■</div>
+        <div class="material-btn toggleable" onclick="toggleSound()" style="background: #444; color: #fff;" id="soundToggle">♪</div>
+        <div class="material-btn toggleable" onclick="decreaseBrushSize()" style="background: #333; color: #fff;">-</div>
+        <div class="material-btn toggleable" id="brushSizeDisplay" style="background: #444; color: #fff;">3</div>
+        <div class="material-btn toggleable" onclick="increaseBrushSize()" style="background: #333; color: #fff;">+</div>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <!-- Load modules in dependency order -->
+    <script src="state.js"></script>
+    <script src="audio.js"></script>
+    <script src="cells.js"></script>
+    <script src="trees.js"></script>
+    <script src="worms.js"></script>
+    <script src="ui.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
